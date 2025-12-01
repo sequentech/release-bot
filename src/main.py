@@ -144,7 +144,7 @@ def main():
         subprocess.run(["git", "fetch", "origin", current_branch], check=True)
         subprocess.run(["git", "checkout", current_branch], check=True)
 
-    base_cmd = "release-tool"
+    base_cmd = "release-tool --auto"
     if config_path:
         base_cmd += f" --config {config_path}"
     

@@ -5,10 +5,10 @@ RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY src/requirements.txt .
-# If release-tool is not on PyPI, you might need to install it from source here
-# RUN pip install git+https://github.com/sequentech/release-tool.git
-RUN pip install -r requirements.txt
+COPY pyproject.toml poetry.lock* ./
+RUN pip install poetry && \
+    poetry config virtualenvs.create false && \
+    poetry install --no-dev --no-interaction --no-ansi
 
 COPY src/main.py .
 
