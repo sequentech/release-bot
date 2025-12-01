@@ -1,0 +1,4 @@
+PyGithub
+# release-tool should be installed. If not on PyPI, use git+https://...
+# For now we assume it is available or installed via other means in the Dockerfile
+release-tool

@@ -1,0 +1,33 @@
+name: 'Release Bot'
+description: 'Automated release management using release-tool'
+inputs:
+  command:
+    description: 'Command to run (generate, publish, update)'
+    required: false
+  version:
+    description: 'Version argument for the command'
+    required: false
+  new_version_type:
+    description: 'Auto-bump type (patch, minor, major, rc)'
+    required: false
+  from_version:
+    description: 'Compare from this version'
+    required: false
+  force:
+    description: 'Force overwrite (none, draft, published)'
+    required: false
+    default: 'none'
+  debug:
+    description: 'Enable debug output'
+    required: false
+    default: 'false'
+  github_token:
+    description: 'GitHub Token'
+    required: true
+  config_path:
+    description: 'Path to release_tool.toml'
+    required: false
+    default: '.release_tool.toml'
+runs:
+  using: 'docker'
+  image: 'Dockerfile'
