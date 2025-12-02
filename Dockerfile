@@ -1,4 +1,4 @@
-FROM ghcr.io/sequentech/release-tool:latest
+FROM ghcr.io/sequentech/release-tool:main
 
 WORKDIR /app
 
