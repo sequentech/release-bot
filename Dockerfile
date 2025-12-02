@@ -1,13 +1,9 @@
-FROM python:3.10-slim
-
-# Install git
-RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
+FROM ghcr.io/sequentech/release-tool:latest
 
 WORKDIR /app
 
-RUN git clone -b feat/meta-9230/main https://github.com/sequentech/release-tool.git /tmp/release-tool && \
-    pip install /tmp/release-tool && \
-    rm -rf /tmp/release-tool
+# release-tool is already installed in the base image.
+# We just need to copy the bot wrapper.
 
 COPY src/main.py .
 
