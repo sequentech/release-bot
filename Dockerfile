@@ -5,10 +5,9 @@ RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-COPY pyproject.toml poetry.lock* ./
-RUN pip install poetry && \
-    poetry config virtualenvs.create false && \
-    poetry install --no-dev --no-interaction --no-ansi
+RUN git clone -b feat/meta-9230/main https://github.com/sequentech/release-tool.git /tmp/release-tool && \
+    pip install /tmp/release-tool && \
+    rm -rf /tmp/release-tool
 
 COPY src/main.py .
 
