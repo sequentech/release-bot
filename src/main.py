@@ -41,6 +41,11 @@ def main():
     # Ensure we are in the workspace
     workspace = os.getenv("GITHUB_WORKSPACE")
     if workspace:
+        # Fix for dubious ownership error in GitHub Actions
+        try:
+            subprocess.run(["git", "config", "--global", "--add", "safe.directory", workspace], check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"Warning: Failed to set safe.directory: {e}")
         os.chdir(workspace)
 
     token = os.getenv("INPUT_GITHUB_TOKEN")
