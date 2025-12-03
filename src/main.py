@@ -52,6 +52,9 @@ def main():
     if not token:
         token = os.getenv("GITHUB_TOKEN")
     
+    if token:
+        os.environ["GITHUB_TOKEN"] = token
+    
     command = os.getenv("INPUT_COMMAND")
     version = os.getenv("INPUT_VERSION")
     new_version_type = os.getenv("INPUT_NEW_VERSION_TYPE")
