@@ -31,7 +31,7 @@ on:
       debug:
         description: 'Enable debug output'
         required: false
-        default: false
+        default: true
         type: boolean
       detect_mode:
         description: 'Detection mode'

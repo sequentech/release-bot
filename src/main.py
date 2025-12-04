@@ -7,12 +7,38 @@ import re
 from github import Github
 from release_tool.db import Database
 
-def run_command(cmd):
+def run_command(cmd, debug=False, capture=False):
+    """
+    Run a shell command.
+
+    Args:
+        cmd: Command to run
+        debug: Enable debug output
+        capture: Capture output instead of streaming (needed when parsing output)
+    """
     print(f"Running: {cmd}")
-    result = subprocess.run(shlex.split(cmd), capture_output=True, text=True)
-    if result.returncode != 0:
-        raise Exception(result.stderr)
-    return result.stdout
+
+    if capture:
+        # Capture output for parsing (e.g., version detection)
+        result = subprocess.run(shlex.split(cmd), capture_output=True, text=True)
+
+        if debug:
+            print(f"Exit code: {result.returncode}")
+            if result.stdout:
+                print(f"STDOUT:\n{result.stdout}")
+            if result.stderr:
+                print(f"STDERR:\n{result.stderr}")
+
+        if result.returncode != 0:
+            raise Exception(result.stderr)
+        return result.stdout
+    else:
+        # Stream output in real-time (better for CI/CD logs)
+        result = subprocess.run(shlex.split(cmd), text=True)
+
+        if result.returncode != 0:
+            raise Exception(f"Command failed with exit code {result.returncode}")
+        return ""
 
 def post_comment(token, repo_name, issue_number, body):
     g = Github(token)
@@ -51,10 +77,10 @@ def main():
     token = os.getenv("INPUT_GITHUB_TOKEN")
     if not token:
         token = os.getenv("GITHUB_TOKEN")
-    
+
     if token:
         os.environ["GITHUB_TOKEN"] = token
-    
+
     command = os.getenv("INPUT_COMMAND")
     version = os.getenv("INPUT_VERSION")
     new_version_type = os.getenv("INPUT_NEW_VERSION_TYPE")
@@ -62,6 +88,18 @@ def main():
     force = os.getenv("INPUT_FORCE", "none")
     debug = os.getenv("INPUT_DEBUG", "false").lower() == "true"
     config_path = os.getenv("INPUT_CONFIG_PATH")
+
+    # Debug output
+    if debug:
+        print(f"[DEBUG] Token status: {'Present' if token else 'Missing'}")
+        if token:
+            print(f"[DEBUG] Token length: {len(token)} chars")
+            print(f"[DEBUG] Token prefix: {token[:7]}..." if len(token) > 7 else "[DEBUG] Token too short")
+        print(f"[DEBUG] Config path: {config_path}")
+        print(f"[DEBUG] Command: {command}")
+        print(f"[DEBUG] Version: {version}")
+        print(f"[DEBUG] New version type: {new_version_type}")
+        print(f"[DEBUG] Workspace: {workspace}")
     
     event_path = os.getenv("GITHUB_EVENT_PATH")
     event_name = os.getenv("GITHUB_EVENT_NAME")
@@ -156,10 +194,15 @@ def main():
     if config_path:
         base_cmd += f" --config {config_path}"
     
+    # Add --debug flag to base command if debug is enabled
+    if debug:
+        base_cmd += " --debug"
+
     # Stateless: Always sync first
     try:
         print("Syncing...")
-        run_command(f"{base_cmd} sync")
+        run_command(f"{base_cmd} sync", debug=debug)
+        print("✅ Sync completed successfully")
     except Exception as e:
         msg = f"❌ Sync failed:\n```\n{e}\n```"
         print(msg)
@@ -192,16 +235,12 @@ def main():
                 gen_cmd += f" {version}"
             elif new_version_type and new_version_type.lower() != "none":
                 gen_cmd += f" --new {new_version_type}"
-            
+
             if from_version:
                 gen_cmd += f" --from-version {from_version}"
-            
-            if debug:
-                gen_cmd += " --debug"
-            
+
             print(f"Generating release notes...")
-            gen_output = run_command(gen_cmd)
-            print(gen_output)
+            gen_output = run_command(gen_cmd, debug=debug, capture=True)
             
             # 2. Determine version for publish
             # If version was explicit, use it.
@@ -225,12 +264,10 @@ def main():
             pub_cmd = f"{base_cmd} publish {publish_version}"
             if force and force.lower() != "none":
                 pub_cmd += f" --force {force}"
-            if debug:
-                pub_cmd += " --debug"
-            
+
             print(f"Publishing release {publish_version}...")
-            pub_output = run_command(pub_cmd)
-            output = f"✅ Release {publish_version} processed successfully.\n\nGenerate Output:\n{gen_output}\n\nPublish Output:\n{pub_output}"
+            run_command(pub_cmd, debug=debug)
+            output = f"✅ Release {publish_version} processed successfully."
 
         elif command == "generate" or command == "update":
             cmd = f"{base_cmd} generate"
@@ -239,8 +276,8 @@ def main():
                     cmd += f" --new {version}"
                 else:
                     cmd += f" {version}"
-            output = run_command(cmd)
-            
+            run_command(cmd, debug=debug)
+
             # Commit and push changes if any
             status = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
             if status.stdout.strip():
@@ -249,21 +286,23 @@ def main():
                 subprocess.run(["git", "commit", "-m", f"chore: update release notes ({command})"], check=True)
                 print(f"Pushing to {current_branch}...")
                 subprocess.run(["git", "push", "origin", current_branch], check=True)
-                output += "\n\n✅ Changes committed and pushed."
+                output = "✅ Changes committed and pushed."
             else:
-                output += "\n\n(No changes to commit)"
-            
+                output = "(No changes to commit)"
+
         elif command == "publish":
             cmd = f"{base_cmd} publish {version}"
             # If auto-publishing (merged PR or closed issue), force published mode
             if event_name in ["pull_request", "issues"]:
                  cmd += " --release-mode published"
-            
-            output = run_command(cmd)
-            
+
+            run_command(cmd, debug=debug)
+            output = "✅ Published successfully."
+
         elif command == "list":
-             cmd = f"{base_cmd} publish --list" 
-             output = run_command(cmd)
+             cmd = f"{base_cmd} publish --list"
+             run_command(cmd, debug=debug, capture=True)
+             output = "✅ List command completed."
         
         else:
             raise Exception(f"Unknown command: {command}")
