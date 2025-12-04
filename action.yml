@@ -32,17 +32,4 @@ runs:
   using: 'docker'
   image: 'Dockerfile'
   env:
-    INPUT_GITHUB_TOKEN: ${{ inputs.github_token }}
-    INPUT_COMMAND: ${{ inputs.command }}
-    INPUT_VERSION: ${{ inputs.version }}
-    INPUT_NEW_VERSION_TYPE: ${{ inputs.new_version_type }}
-    INPUT_FROM_VERSION: ${{ inputs.from_version }}
-    INPUT_FORCE: ${{ inputs.force }}
-    INPUT_DEBUG: ${{ inputs.debug }}
-    INPUT_CONFIG_PATH: ${{ inputs.config_path }}
     GITHUB_TOKEN: ${{ inputs.github_token }}
-    GITHUB_WORKSPACE: ${{ github.workspace }}
-    GITHUB_EVENT_PATH: ${{ github.event_path }}
-    GITHUB_EVENT_NAME: ${{ github.event_name }}
-    GITHUB_REPOSITORY: ${{ github.repository }}
-    GITHUB_REF_NAME: ${{ github.ref_name }}
