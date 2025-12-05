@@ -80,6 +80,32 @@ clone_code_repo = true
 # Default: null (uses .release_tool_cache/{repo_name})
 # code_repo_path = "/path/to/local/repo"
 
+# clone_method: Method for cloning repositories
+# Options:
+#   - "https": Clone using HTTPS with GitHub token authentication
+#              Recommended for GitHub Actions with GITHUB_TOKEN
+#   - "ssh": Clone using SSH (git@github.com:owner/repo.git)
+#            Requires SSH keys to be configured
+#   - "auto": Try HTTPS first, fallback to SSH if it fails (DEFAULT)
+#             Provides flexibility across different environments
+# Default: "auto"
+# Use case:
+#   - GitHub Actions: Use "https" or "auto" (default)
+#   - Local development with SSH keys: Use "ssh" or "auto"
+#   - GitHub Enterprise: Use "https" with custom clone_url_template
+clone_method = "auto"
+
+# clone_url_template: Custom clone URL template for non-standard Git hosting
+# Use {repo_full_name} as a placeholder for the repository (e.g., "owner/repo")
+# This is useful for GitHub Enterprise or custom Git servers
+# If not specified, uses standard GitHub URLs based on clone_method
+# Default: null (uses github.com)
+# Examples:
+#   - GitHub Enterprise: "https://github.enterprise.com/{repo_full_name}.git"
+#   - Custom Git server: "https://git.company.com/{repo_full_name}.git"
+#   - SSH on custom port: "ssh://git@gitlab.company.com:2222/{repo_full_name}.git"
+# clone_url_template = "https://github.enterprise.com/{repo_full_name}.git"
+
 # show_progress: Show progress updates during sync
 # When true, displays messages like "syncing 13 / 156 tickets (10% done)"
 # Default: true
@@ -411,3 +437,569 @@ entry_template = '''- {{ title }} {% if short_repo_link %}({{ short_repo_link }}
   {% if authors %}
   &nbsp;&nbsp;by {% for author in authors %}{{ author.mention }}{% if not loop.last %}, {% endif %}{% endfor %}
   {% endif %}'''
+
+# release_output_template: MASTER Jinja2 template for GitHub release notes output
+# This is an ADVANCED feature that gives you complete control over the release
+# notes structure. When set, this template replaces the default category-based
+# layout and lets you design your own custom format.
+#
+# WHEN TO USE:
+#   - You want a custom layout (e.g., flat list, grouped by type, etc.)
+#   - You need to iterate over migrations or descriptions across all tickets
+#   - You want full control over the output structure
+#
+# IMPORTANT: HTML-like behavior for whitespace (same as entry_template)
+#   - Multiple spaces collapse to single space
+#   - Line breaks: Use <br> or <br/> for new lines in output
+#   - Non-breaking spaces: Use &nbsp; for explicit spaces that won't collapse
+#
+# Available variables:
+#   - {{ version }}      : Version string (e.g., "1.2.3")
+#   - {{ title }}        : Rendered release title (from title_template)
+#   - {{ year }}         : Current year (e.g., "2025")
+#   - {{ categories }}   : List of category dicts with 'name' and 'notes'
+#   - {{ all_notes }}    : Flat list of all note dicts (across categories)
+#   - {{ render_entry(note) }}: Function to render a note using entry_template
+#
+# Each note dict contains:
+#   - title, url (prioritizes ticket_url over pr_url), ticket_url, pr_url
+#   - short_link (#123), short_repo_link (meta#123)
+#   - pr_numbers, commit_shas, labels, ticket_key, category
+#   - description, migration_notes (processed, may be None)
+#   - authors (list of author dicts with all fields)
+#
+# Template examples:
+#
+#   1. Default category-based layout (equivalent to not setting output_template):
+#      output_template = '''# {{ title }}
+#
+#      {% for category in categories %}
+#      ## {{ category.name }}
+#      {% for note in category.notes %}
+#      {{ render_entry(note) }}
+#      {% endfor %}
+#      {% endfor %}'''
+#
+#   2. Flat list without categories:
+#      output_template = '''# {{ title }}
+#
+#      {% for note in all_notes %}
+#      {{ render_entry(note) }}
+#      {% endfor %}'''
+#
+#   3. Custom layout with migrations section:
+#      output_template = '''# {{ title }}
+#
+#      ## Changes
+#      {% for note in all_notes %}
+#      {{ render_entry(note) }}
+#      {% endfor %}
+#
+#      ## Migration Notes
+#      {% for note in all_notes %}
+#      {% if note.migration_notes %}
+#      ### {{ note.title }}
+#      {{ note.migration_notes }}
+#      {% endif %}
+#      {% endfor %}'''
+#
+#   4. Grouped by ticket with full descriptions:
+#      output_template = '''# {{ title }}
+#
+#      {% for note in all_notes %}
+#      ## {{ note.title }}
+#      {% if note.description %}
+#      {{ note.description }}
+#      {% endif %}
+#      {% if note.url %}
+#      **Pull Request:** [#{{ note.pr_numbers[0] }}]({{ note.url }})
+#      {% endif %}
+#      {% if note.authors %}
+#      **Authors:** {% for author in note.authors %}{{ author.mention }}{% if not loop.last %}, {% endif %}{% endfor %}
+#      {% endif %}
+#      {% if note.migration_notes %}
+#      **Migration:** {{ note.migration_notes }}
+#      {% endif %}
+#      {% endfor %}'''
+#
+#   5. Custom grouping with manual entry rendering:
+#      output_template = '''# {{ title }}
+#
+#      ## Features & Fixes
+#      {% for category in categories %}
+#      {% if category.name in ["Features", "Bug Fixes"] %}
+#      ### {{ category.name }}
+#      {% for note in category.notes %}
+#      {{ render_entry(note) }}
+#      {% endfor %}
+#      {% endif %}
+#      {% endfor %}
+#
+#      ## Other Changes
+#      {% for category in categories %}
+#      {% if category.name not in ["Features", "Bug Fixes"] %}
+#      {% for note in category.notes %}
+#      - {{ note.title }}{% if note.url %} ([#{{ note.pr_numbers[0] }}]({{ note.url }})){% endif %}
+#      {% endfor %}
+#      {% endif %}
+#      {% endfor %}'''
+#
+# Default: Comprehensive template with breaking changes, migrations, descriptions, and categorized changes
+release_output_template = '''{% set breaking_with_desc = all_notes|selectattr('category', 'equalto', '💥 Breaking Changes')|selectattr('description')|list %}
+{% if breaking_with_desc|length > 0 %}
+<br>## 💥 Breaking Changes
+{% for note in breaking_with_desc %}
+<br>### {{ note.title }}
+{{ note.description }}
+{% if note.url %}See [#{{ note.pr_numbers[0] }}]({{ note.url }}) for details.{% endif %}
+
+{% endfor %}
+{% endif %}
+{% set migration_notes = all_notes|selectattr('migration_notes')|list %}
+{% if migration_notes|length > 0 %}
+<br>## 🔄 Migrations<br>
+{% for note in migration_notes %}
+<br>### {{ note.title }}<br>
+{{ note.migration_notes }}
+{% if note.url %}See [#{{ note.pr_numbers[0] }}]({{ note.url }}) for details.{% endif %}
+
+{% endfor %}
+{% endif %}
+{% set non_breaking_with_desc = all_notes|rejectattr('category', 'equalto', '💥 Breaking Changes')|selectattr('description')|list %}
+{% if non_breaking_with_desc|length > 0 %}
+<br>## 📝 Highlights<br>
+{% for note in non_breaking_with_desc %}
+<br>### {{ note.title }}
+{{ note.description }}
+{% if note.url %}See [#{{ note.pr_numbers[0] }}]({{ note.url }}) for details.{% endif %}
+
+{% endfor %}
+{% endif %}
+<br>## 📋 All Changes
+{% for category in categories %}
+<br>### {{ category.name }}
+{% for note in category.notes %}
+{% if loop.first %}<br>{% endif %}{{ render_entry(note) }}<br>
+{% endfor %}
+
+{% endfor %}'''
+
+# doc_output_template: Jinja2 template for Docusaurus/documentation release notes
+# This optional template wraps the GitHub release notes with documentation-specific
+# formatting such as Docusaurus frontmatter. It provides an additional render function
+# to embed the GitHub release notes within the documentation format.
+#
+# WHEN TO USE:
+#   - You want to generate Docusaurus documentation alongside GitHub release notes
+#   - You need to add frontmatter (id, title, etc.) to the release notes
+#   - You want different formatting for documentation vs GitHub releases
+#
+# IMPORTANT: HTML-like behavior for whitespace (same as release_output_template)
+#   - Multiple spaces collapse to single space
+#   - Line breaks: Use <br> or <br/> for new lines in output
+#   - Non-breaking spaces: Use &nbsp; for explicit spaces that won't collapse
+#
+# Available variables (in addition to all release_output_template variables):
+#   - {{ version }}                 : Version string (e.g., "1.2.3")
+#   - {{ title }}                   : Rendered release title (from title_template)
+#   - {{ year }}                    : Current year (e.g., "2025")
+#   - {{ categories }}              : List of category dicts with 'name' and 'notes'
+#   - {{ all_notes }}               : Flat list of all note dicts
+#   - {{ render_entry(note) }}      : Function to render a note using entry_template
+#   - {{ render_release_notes() }}  : Function to render the GitHub release notes
+#
+# Template example for Docusaurus:
+#   doc_output_template = '''---
+#   id: release-{{version}}
+#   title: {{title}}
+#   ---
+#   <!--
+#   SPDX-FileCopyrightText: {{year}} Sequent Tech Inc <legal@sequentech.io>
+#   SPDX-License-Identifier: AGPL-3.0-only
+#   -->
+#   {{ render_release_notes() }}<br>'''
+#
+#  You can set it to None to disable it so that only GitHub release notes are generated
+doc_output_template = '''---
+id: release-{{version}}
+title: {{title}}
+---
+<!--
+SPDX-FileCopyrightText: {{year}} Sequent Tech Inc <legal@sequentech.io>
+SPDX-License-Identifier: AGPL-3.0-only
+-->
+# Release {{version}}
+
+{{ render_release_notes() }}<br>'''
+
+# =============================================================================
+# Output Configuration
+# =============================================================================
+
+[[release_notes.categories]]
+name = "💥 Breaking Changes"
+labels = ["breaking-change", "breaking"]
+order = 1
+alias = "breaking"
+
+[[release_notes.categories]]
+name = "🚀 Features"
+labels = ["feature", "enhancement", "feat"]
+order = 2
+alias = "features"
+
+[[release_notes.categories]]
+name = "🛠 Bug Fixes"
+labels = ["bug", "fix", "bugfix", "hotfix"]
+order = 3
+alias = "bugfixes"
+
+[[release_notes.categories]]
+name = "📖 Documentation"
+labels = ["docs", "documentation"]
+order = 4
+alias = "docs"
+
+[[release_notes.categories]]
+name = "🛡 Security Updates"
+labels = ["security"]
+order = 5
+alias = "security"
+
+[[release_notes.categories]]
+name = "Other Changes"
+labels = []
+order = 99
+alias = "other"
+
+# =============================================================================
+# Release Notes Formatting and Content
+# =============================================================================
+
+[output]
+# release_output_path: Path template for GitHub release notes file (Jinja2 syntax)
+# This file will be created/updated when using the generate command
+# Used for creating GitHub releases via the publish command
+#
+# Available variables for path substitution:
+#   - {{version}}: Full version string (e.g., "1.2.3", "2.0.0-rc.1")
+#   - {{major}}: Major version number only (e.g., "1")
+#   - {{minor}}: Minor version number only (e.g., "2")
+#   - {{patch}}: Patch version number only (e.g., "3")
+#
+# Path template examples:
+#   - "CHANGELOG.md": Single changelog file (appends/overwrites)
+#   - "docs/releases/{{version}}.md": Separate file per version
+#   - "releases/{{major}}.{{minor}}/{{patch}}.md": Organized by major.minor
+#   - "docs/{{major}}.x.md": One file per major version
+#   - "website/releases/v{{version}}.md": With prefix
+#
+# Default: "docs/releases/{{version}}.md"
+release_output_path = "docs/releases/{{version}}.md"
+
+# doc_output_path: Path template for Docusaurus/documentation release notes file (Jinja2 syntax)
+# This file will be created alongside the GitHub release notes when doc_output_template is configured
+# Used for generating documentation that can be committed to your docs site
+#
+# Available variables for path substitution (same as release_output_path):
+#   - {{version}}: Full version string (e.g., "1.2.3", "2.0.0-rc.1")
+#   - {{major}}: Major version number only (e.g., "1")
+#   - {{minor}}: Minor version number only (e.g., "2")
+#   - {{patch}}: Patch version number only (e.g., "3")
+#
+# Path template examples:
+#   - "docs/docusaurus/docs/releases/release-{{major}}.{{minor}}/release-{{major}}.{{minor}}.{{patch}}.md"
+#   - "website/docs/releases/{{version}}.md"
+#   - "docs/releases/v{{major}}.{{minor}}.{{patch}}.md"
+#
+# You can set it to false or not set it to disable it so that only GitHub release notes are generated
+doc_output_path = false
+
+# draft_output_path: Path template for draft release notes (generate command, Jinja2 syntax)
+# This is where 'generate' command saves files by default (when --output not specified)
+# Files are saved here for review/editing before publishing to GitHub
+#
+# Available variables:
+#   - {{code_repo}}: Sanitized code repository name (e.g., "sequentech-step")
+#   - {{version}}: Full version string
+#   - {{major}}: Major version number
+#   - {{minor}}: Minor version number
+#   - {{patch}}: Patch version number
+#   - {{output_file_type}}: Type of output file ("release" or "doc")
+#
+# Examples:
+#   - ".release_tool_cache/draft-releases/{{code_repo}}/{{version}}-{{output_file_type}}.md": Organized by repo and version (DEFAULT)
+#   - "drafts/{{major}}.{{minor}}.{{patch}}-{{output_file_type}}.md": Simple draft folder
+#   - "/tmp/releases/{{code_repo}}-{{version}}-{{output_file_type}}.md": Temporary location
+#
+# Default: ".release_tool_cache/draft-releases/{{code_repo}}/{{version}}-{{output_file_type}}.md"
+draft_output_path = ".release_tool_cache/draft-releases/{{code_repo}}/{{version}}-{{output_file_type}}.md"
+
+# assets_path: Path template for downloaded media assets (images, videos, Jinja2 syntax)
+# Images and videos referenced in ticket descriptions will be downloaded here
+# and references will be updated to use local paths in the release notes
+# This is useful for Docusaurus and other static site generators
+#
+# Available variables (same as output_path):
+#   - {{version}}: Full version string
+#   - {{major}}: Major version number
+#   - {{minor}}: Minor version number
+#   - {{patch}}: Patch version number
+#
+# Path must be relative to output_path for correct markdown references
+# Examples:
+#   - "docs/releases/assets/{{version}}": Organized by version
+#   - "static/img/releases/{{major}}.{{minor}}": Shared across patches
+#   - "assets/{{version}}": Simple structure
+#
+# Default: "docs/releases/assets/{{version}}"
+assets_path = "docs/docusaurus/docs/releases/release-{{major}}.{{minor}}/assets"
+
+# download_media: Download images and videos from ticket descriptions
+# When true: Downloads media files and updates references to local paths
+# When false: Keeps original URLs in release notes
+# Default: true
+# RECOMMENDED: true for static sites (Docusaurus), false for GitHub releases
+download_media = false
+
+# create_github_release: Automatically create a GitHub release
+# When true: Uploads release notes to GitHub Releases
+# When false: Only generates markdown (no upload)
+# Default: true
+# CLI override: --release / --no-release
+# SECURITY: Requires GitHub token with repo write permissions
+create_github_release = true
+
+# create_pr: Automatically create a PR with the release notes file
+# When true: Creates a PR to add/update the release notes file
+# When false: No PR is created
+# Requires: output_path to be configured
+# Default: true
+# CLI override: --pr / --no-pr
+create_pr = true
+
+# release_mode: Default release mode for GitHub releases
+# Options:
+#   - "draft": Releases are created as drafts (unpublished)
+#   - "published": Releases are published immediately
+# Default: "draft"
+# CLI override: --release-mode draft|published
+# Use case: Set to "draft" if you want to review releases before publishing
+release_mode = "draft"
+
+# prerelease: Mark GitHub releases as prereleases
+# Options:
+#   - "auto": Auto-detect from version (e.g., "1.0.0-rc.1" → prerelease, "1.0.0" → stable)
+#   - true: Always mark as prerelease
+#   - false: Always mark as stable/final
+# Default: "auto"
+# CLI override: --prerelease auto|true|false
+# Use cases:
+#   - "auto": Most flexible, automatically handles RCs and stable releases
+#   - true: If you typically create beta/RC releases and want to be explicit
+#   - false: For projects that only do stable releases
+prerelease = "auto"
+
+# create_ticket: Whether to create a tracking issue for the release
+# When true, a GitHub issue will be created automatically and PR templates can use
+# {{issue_repo}}, {{issue_number}}, and {{issue_link}} variables
+# Default: true
+# Use case: Set to false if you don't want to track releases with GitHub issues
+create_ticket = true
+
+# =============================================================================
+# Release Tracking Ticket Templates (for create_ticket)
+# =============================================================================
+[output.ticket_templates]
+# title_template: Template for the ticket title
+# Available variables:
+#   - {{version}}: Full version string (e.g., "1.2.3")
+#   - {{major}}, {{minor}}, {{patch}}: Version components
+#   - {{num_changes}}, {{num_categories}}: Release notes statistics
+#
+# Examples:
+#   - "Release {{version}}": Simple format (DEFAULT)
+#   - "Release v{{version}} - {{num_changes}} changes": With stats
+#
+# Default: "✨ Prepare Release {{version}}"
+title_template = "✨ Prepare Release {{version}}"
+
+# body_template: Template for the ticket description (supports multi-line)
+# Available variables:
+#   - {{version}}: Full version string (e.g., "1.2.3")
+#   - {{major}}, {{minor}}, {{patch}}: Version components
+#   - {{num_changes}}, {{num_categories}}: Release notes statistics
+#   - {{pr_link}}: Link to the release notes PR (will be populated after PR creation)
+#   - {{issue_repo_name}}: Short name of issues repo (e.g. "meta" from "sequentech/meta")
+#
+# Default: Release preparation checklist based on step's .github release template
+body_template = '''### DevOps Tasks
+
+- [ ] Github release notes: correct and complete
+- [ ] Docusaurus release notes: correct and complete
+- [ ] BEYOND-PR-HERE for a new default tenant/election-event template and any new other changes (branch should be `release/{{major}}.{{minor}}`)
+- [ ] GITOPS-PR-HERE for a new default tenant/election-event template and any new other changes (branch should be `release/{{major}}.{{minor}}`)
+- [ ] Request in Environments spreadsheet to get deployment approval by environment owners
+
+NOTE: Please also update deployment status when a release is deployed in an environment.
+
+### QA Flight List
+
+- [ ] Deploy in `dev`
+- [ ] Positive Test in `dev`
+- [ ] Deploy in `qa`
+- [ ] Positive Test in `qa`
+
+### PRs
+
+- {{pr_link}}'''
+
+# labels: Labels to apply to the release tracking ticket
+# Default: ["release", "devops", "infrastructure"]
+labels = ["release", "devops", "infrastructure"]
+
+# assignee: GitHub username to assign the ticket to
+# If not specified (or commented out), the ticket is assigned to the user
+# authenticated with the GitHub token (the one running the tool).
+# Set this if you want to assign the release ticket to a specific person or bot.
+# Example: "johndoe"
+# assignee = "johndoe"
+
+# project_id: GitHub Project V2 Number to add the ticket to
+# This allows automatically adding the release ticket to a GitHub Project board.
+# The value should be the project NUMBER found in the URL (e.g. 1 for .../projects/1),
+# NOT the Node ID (PVT_...).
+# NOTE: This requires the GitHub token to have 'project' scope (for PATs) or
+# appropriate permissions (for GitHub Apps).
+# Example: "1"
+project_id = "1"
+
+# project_status: Status to set in the GitHub Project
+# Sets the value of the "Status" field in the project board.
+# The value must EXACTLY match a valid status option in your project (case-sensitive).
+# This setting is ignored if project_id is not set.
+# Common values: "Todo", "In Progress", "Backlog", "Ready"
+# Example: "Todo"
+project_status = "In progress"
+
+# project_fields: Custom fields to set in the GitHub Project
+# Allows setting additional metadata fields in the project board.
+# This is a key-value map where:
+#   - Key: The exact name of the field in the project (e.g., "Priority", "Sprint")
+#   - Value: The value to set. Supports:
+#     * Text/Number/Date fields: The value as a string
+#     * Single Select fields: The option name (case-insensitive)
+#     * Iteration fields: The iteration name OR "@current" to automatically select the active iteration
+# This setting is ignored if project_id is not set.
+# Example: { "Priority" = "High", "Estimate" = "3", "Iteration" = "@current" }
+project_fields = { "Team" = "Product", "Estimate" = "3", "Iteration" = "@current" }
+
+# type: Issue type to set
+# Specifies the type of the issue (e.g., "Task", "Bug", "Feature").
+# This is typically mapped to a label with the same name.
+# Example: "Task"
+type = "Task"
+
+# milestone: Milestone to assign the ticket to
+# Specifies the name of the GitHub milestone to assign.
+# The milestone must exist in the repository.
+#
+# Available variables:
+#   - {{version}}: Full version string (e.g., "1.2.3")
+#   - {{major}}, {{minor}}, {{patch}}: Version components
+#   - {{year}}: Current year (e.g., "2025")
+#   - {{quarter_uppercase}}: Current quarter (e.g., "Q4")
+#
+# Examples:
+#   - "{{year}}_{{quarter_uppercase}}": Time-based (DEFAULT) -> "2025_Q4"
+#   - "v{{major}}.{{minor}}": Version-based -> "v1.2"
+#   - "Release {{version}}": Full version -> "Release 1.2.3"
+#
+# Default: "{{year}}_{{quarter_uppercase}}"
+milestone = "{{year}}_{{quarter_uppercase}}"
+
+# =============================================================================
+# Pull Request Templates (for create_pr)
+# =============================================================================
+[output.pr_templates]
+# ALL TEMPLATES USE JINJA2 SYNTAX: {{ variable_name }}
+#
+# branch_template: Template for the PR branch name
+# Available variables (always):
+#   - {{version}}: Full version string (e.g., "1.2.3")
+#   - {{major}}, {{minor}}, {{patch}}: Version components
+#   - {{code_repo}}: Sanitized code repository name (e.g., "sequentech-step")
+#   - {{issue_repo}}: Issues repository name (e.g., "sequentech/meta")
+#   - {{issue_repo_name}}: Short name of issues repo (e.g. "meta" from "sequentech/meta")
+#   - {{target_branch}}: Target branch for PR
+#
+# Available variables (only when create_ticket=true and ticket was created):
+#   - {{issue_number}}: Auto-generated issue number
+#   - {{issue_link}}: Auto-generated issue URL
+#
+# Examples:
+#   - "release-notes-{{version}}": Simple format
+#   - "docs/{{issue_repo_name}}-{{issue_number}}/{{target_branch}}": With issue tracking (DEFAULT)
+#   - "docs/release-{{major}}.{{minor}}.{{patch}}": Structured branch
+#   - "chore/update-changelog-{{version}}": With prefix
+#
+# Default: "docs/{{issue_repo_name}}-{{issue_number}}/{{target_branch}}"
+branch_template = "docs/{{issue_repo_name}}-{{issue_number}}/{{target_branch}}"
+
+# title_template: Template for the PR title
+# Available variables (always):
+#   - {{version}}: Full version string
+#   - {{major}}, {{minor}}, {{patch}}: Version components
+#   - {{num_changes}}: Number of changes in release notes
+#   - {{num_categories}}: Number of categories
+#   - {{code_repo}}, {{issue_repo}}: Repository names
+#
+# Available variables (only when create_ticket=true and ticket was created):
+#   - {{issue_number}}, {{issue_link}}: Ticket information
+#
+# Examples:
+#   - "Release notes for {{version}}": Simple title (DEFAULT)
+#   - "docs: Add release notes for v{{version}}": Conventional commits
+#   - "Release {{version}} with {{num_changes}} changes": With counts
+#
+# Default: "Release notes for {{version}}"
+title_template = "Release notes for {{version}}"
+
+# body_template: Template for the PR description (supports multi-line)
+# Available variables:
+#   - {{version}}: Full version string
+#   - {{major}}, {{minor}}, {{patch}}: Version components
+#   - {{num_changes}}: Number of changes in release notes
+#   - {{num_categories}}: Number of categories
+#   - {{code_repo}}: Sanitized code repository name
+#   - {{issue_repo}}: Issues repository name
+#   - {{issue_repo_name}}: Short name of issues repo
+#   - {{target_branch}}: Target branch for PR
+#
+# Available variables (only when create_ticket=true and ticket was created):
+#   - {{issue_number}}: Auto-generated issue number
+#   - {{issue_link}}: Auto-generated issue URL
+#
+# Examples:
+#   - Simple:
+#     body_template = "Automated release notes for version {{version}}."
+#
+#   - With issue tracking (DEFAULT) - use triple quotes for multi-line:
+#     body_template = '''Parent issue: {{issue_link}}
+#
+#     Automated release notes for version {{version}}.
+#
+#     ## Summary
+#     This PR adds release notes for {{version}} with {{num_changes}} changes across {{num_categories}} categories.'''
+#
+# Default: Multi-line with issue link and summary
+body_template = '''Parent issue: {{issue_link}}
+
+Automated release notes for version {{version}}.
+
+## Summary
+This PR adds release notes for {{version}} with {{num_changes}} changes across {{num_categories}} categories.'''
+
+# =============================================================================
+# End of Configuration
+# =============================================================================
