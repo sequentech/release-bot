@@ -54,11 +54,9 @@ on:
     branches:
       - 'release/**'
 
-  issues:
-    types: [closed]
-
 jobs:
   release-bot:
+    if: github.event_name != 'issue_comment' || startsWith(github.event.comment.body, '/release-bot ')
     runs-on: ubuntu-latest
     permissions:
       contents: write
