@@ -7,7 +7,7 @@ import re
 from github import Github
 from release_tool.db import Database
 
-def run_command(cmd, debug=False, capture=False):
+def run_command(cmd, debug=False, capture=True):
     """
     Run a shell command.
 
@@ -233,14 +233,14 @@ def main():
             gen_cmd = f"{base_cmd} generate"
             if version:
                 gen_cmd += f" {version}"
-            elif new_version_type and new_version_type.lower() != "none":
+            if new_version_type and new_version_type.lower() != "none":
                 gen_cmd += f" --new {new_version_type}"
 
             if from_version:
                 gen_cmd += f" --from-version {from_version}"
 
             print(f"Generating release notes...")
-            gen_output = run_command(gen_cmd, debug=debug, capture=True)
+            gen_output = run_command(gen_cmd, debug=debug)
             
             # 2. Determine version for publish
             # If version was explicit, use it.
@@ -301,7 +301,7 @@ def main():
 
         elif command == "list":
              cmd = f"{base_cmd} publish --list"
-             run_command(cmd, debug=debug, capture=True)
+             run_command(cmd, debug=debug)
              output = "✅ List command completed."
         
         else:
