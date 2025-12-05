@@ -264,44 +264,21 @@ def main():
             gen_output = run_command(gen_cmd, debug=debug)
             
             # 2. Determine version for publish
-            publish_version = get_single_release_version()
+            publish_version = get_version_from_drafts(config_path)
             if not publish_version and version:
                 publish_version = version
 
             if publish_version:
-                print(f"Generated version: {publish_version}")
+                print(f"Detected generated version from draft file: {publish_version}")
             else:
-                raise Exception("Could not determine generated version from database.")
+                raise Exception("Could not determine generated version.")
 
             # 3. Publish
             pub_cmd = f"{base_cmd} publish {publish_version}"
             if force and force.lower() != "none":
                 pub_cmd += f" --force {force}"
-
-            # 2. Determine version for publish
-            if not publish_version:
-                publish_version = get_version_from_drafts(config_path)
-                if publish_version:
-                    print(f"Detected generated version from draft file: {publish_version}")
-
-            if publish_version:
-                print(f"Detected generated version from output: {publish_version}")
-            else:
-                raise Exception("Could not determine generated version.")
     
             run_command(cmd, debug=debug)
-
-            # Commit and push changes if any
-            status = subprocess.run(["git", "status", "--porcelain"], capture_output=True, text=True)
-            if status.stdout.strip():
-                print("Committing changes...")
-                subprocess.run(["git", "add", "."], check=True)
-                subprocess.run(["git", "commit", "-m", f"chore: update release notes ({command})"], check=True)
-                print(f"Pushing to {current_branch}...")
-                subprocess.run(["git", "push", "origin", current_branch], check=True)
-                output = "✅ Changes committed and pushed."
-            else:
-                output = "(No changes to commit)"
 
         elif command == "publish":
             cmd = f"{base_cmd} publish {version}"
