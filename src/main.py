@@ -4,8 +4,11 @@ import json
 import subprocess
 import shlex
 import re
+from pathlib import Path
 from github import Github
 from release_tool.db import Database
+from release_tool.config import load_config
+from release_tool.commands.publish import _find_draft_releases
 
 def run_command(cmd, debug=False, capture=True):
     """
@@ -63,18 +66,22 @@ def get_version_from_ticket(repo_name, ticket_number):
         print(f"Error querying database: {e}")
     return None
 
-def get_single_release_version():
+def get_version_from_drafts(config_path):
     try:
-        db = Database()
-        db.connect()
-        cursor = db.conn.cursor()
-        cursor.execute("SELECT version FROM releases")
-        row = cursor.fetchone()
-        db.close()
-        if row:
-            return row[0]
+        config = load_config(config_path)
+        draft_files = _find_draft_releases(config)
+        if draft_files:
+            # Use the newest draft file
+            first_file = draft_files[0]
+            filename = first_file.stem
+            version_str = filename
+            if filename.endswith("-doc"):
+                version_str = filename[:-4]
+            elif filename.endswith("-release"):
+                version_str = filename[:-8]
+            return version_str
     except Exception as e:
-        print(f"Error querying database: {e}")
+        print(f"Warning: Failed to detect version from draft files: {e}")
     return None
 
 def main():
@@ -271,17 +278,17 @@ def main():
             if force and force.lower() != "none":
                 pub_cmd += f" --force {force}"
 
-            print(f"Publishing release {publish_version}...")
-            run_command(pub_cmd, debug=debug)
-            output = f"✅ Release {publish_version} processed successfully."
+            # 2. Determine version for publish
+            if not publish_version:
+                publish_version = get_version_from_drafts(config_path)
+                if publish_version:
+                    print(f"Detected generated version from draft file: {publish_version}")
 
-        elif command == "generate" or command == "update":
-            cmd = f"{base_cmd} generate"
-            if version:
-                if version.lower() in ['major', 'minor', 'patch', 'rc']:
-                    cmd += f" --new {version}"
-                else:
-                    cmd += f" {version}"
+            if publish_version:
+                print(f"Detected generated version from output: {publish_version}")
+            else:
+                raise Exception("Could not determine generated version.")
+    
             run_command(cmd, debug=debug)
 
             # Commit and push changes if any
