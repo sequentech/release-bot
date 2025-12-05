@@ -62,6 +62,8 @@ jobs:
       contents: write
       issues: write
       pull-requests: write
+      packages: read
+      metadata: read
     steps:
       - name: Checkout Repository
         uses: actions/checkout@v3
