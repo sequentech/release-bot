@@ -667,7 +667,7 @@ order = 5
 alias = "security"
 
 [[release_notes.categories]]
-name = "Other Changes"
+name = "Other"
 labels = []
 order = 99
 alias = "other"
