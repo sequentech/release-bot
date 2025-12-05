@@ -63,6 +63,20 @@ def get_version_from_ticket(repo_name, ticket_number):
         print(f"Error querying database: {e}")
     return None
 
+def get_single_release_version():
+    try:
+        db = Database()
+        db.connect()
+        cursor = db.conn.cursor()
+        cursor.execute("SELECT version FROM releases")
+        row = cursor.fetchone()
+        db.close()
+        if row:
+            return row[0]
+    except Exception as e:
+        print(f"Error querying database: {e}")
+    return None
+
 def main():
     # Ensure we are in the workspace
     workspace = os.getenv("GITHUB_WORKSPACE")
@@ -243,22 +257,14 @@ def main():
             gen_output = run_command(gen_cmd, debug=debug)
             
             # 2. Determine version for publish
-            # If version was explicit, use it.
-            # If auto-bumped, we need to find it.
-            publish_version = version
-            if not publish_version:
-                # Try to parse from output: "Generated release notes for [bold]1.2.3[/bold]"
-                # Or "Release notes written to: .../1.2.3.md"
-                match = re.search(r"Generated release notes for .*?(\d+\.\d+\.\d+(?:-\w+\.\d+)?)", gen_output)
-                if not match:
-                    # Try finding the file path in output
-                    match = re.search(r"Release notes written to:.*?/([\d\.]+[\w\.-]*)\.md", gen_output, re.DOTALL)
-                
-                if match:
-                    publish_version = match.group(1)
-                    print(f"Detected generated version: {publish_version}")
-                else:
-                    raise Exception("Could not determine generated version from output.")
+            publish_version = get_single_release_version()
+            if not publish_version and version:
+                publish_version = version
+
+            if publish_version:
+                print(f"Generated version: {publish_version}")
+            else:
+                raise Exception("Could not determine generated version from database.")
 
             # 3. Publish
             pub_cmd = f"{base_cmd} publish {publish_version}"
