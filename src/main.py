@@ -149,6 +149,10 @@ def parse_event(inputs):
         command = parts[1]
         if len(parts) > 2:
             version = parts[2]
+        
+        # Map 'update' to workflow-like behavior
+        if command == "update":
+            command = "update"
 
     # Handle PR Merge (Auto-Publish)
     elif event_name == "pull_request":
@@ -230,7 +234,7 @@ def handle_workflow_dispatch(base_cmd, version, new_version_type, from_version, 
     else:
         raise Exception("Could not determine generated version.")
 
-    # 3. Publish
+    # 3. Publish (respects config's release_mode setting)
     pub_cmd = f"{base_cmd} publish {publish_version}"
     if force and force.lower() != "none":
         pub_cmd += f" --force {force}"
@@ -337,6 +341,18 @@ def main():
     try:
         output = ""
         if command == "workflow_dispatch":
+            output = handle_workflow_dispatch(
+                base_cmd,
+                version,
+                inputs["new_version_type"],
+                inputs["from_version"],
+                inputs["force"],
+                debug,
+                inputs["config_path"]
+            )
+
+        elif command == "update":
+            # Update behaves like workflow_dispatch: generate + publish
             output = handle_workflow_dispatch(
                 base_cmd,
                 version,

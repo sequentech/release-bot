@@ -117,9 +117,10 @@ You can manually trigger the workflow from the "Actions" tab in GitHub.
 
 Interact with the bot by commenting on Issues or Pull Requests created by the workflow.
 
-*   **`/release update`**: Regenerates the release notes for the current context. Useful if you've added more PRs/commits and want to update the draft.
-*   **`/release publish`**: Publishes the release associated with the current ticket. The bot automatically detects the version from the ticket.
-*   **`/release list`**: Lists drafts ready to be published.
+*   **`/release-bot update`**: Regenerates the release notes and publishes them (respecting the configured release mode - draft or published). This behaves like the manual workflow trigger, running sync → generate → publish. Useful if you've added more PRs/commits and want to update the release.
+*   **`/release-bot publish [version]`**: Publishes the release associated with the current ticket. The bot automatically detects the version from the ticket if not specified.
+*   **`/release-bot generate [version]`**: Only generates release notes without publishing.
+*   **`/release-bot list`**: Lists drafts ready to be published.
 
 **Note** this only works if the `on.issue_comment` is properly configured in the github action workflow.
 
