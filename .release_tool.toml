@@ -905,7 +905,7 @@ labels = ["release", "devops", "infrastructure"]
 # authenticated with the GitHub token (the one running the tool).
 # Set this if you want to assign the release ticket to a specific person or bot.
 # Example: "johndoe"
-# assignee = "johndoe"
+assignee = "edulix"
 
 # project_id: GitHub Project V2 Number to add the ticket to
 # This allows automatically adding the release ticket to a GitHub Project board.
