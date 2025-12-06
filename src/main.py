@@ -183,6 +183,8 @@ def get_inputs():
     if token:
         os.environ["GITHUB_TOKEN"] = token
     
+    debug_env = os.getenv("INPUT_DEBUG", "true")
+    
     return {
         "token": token,
         "command": os.getenv("INPUT_COMMAND"),
@@ -190,7 +192,7 @@ def get_inputs():
         "new_version_type": os.getenv("INPUT_NEW_VERSION_TYPE"),
         "from_version": os.getenv("INPUT_FROM_VERSION"),
         "force": os.getenv("INPUT_FORCE", "none"),
-        "debug": os.getenv("INPUT_DEBUG", "false").lower() == "true",
+        "debug": debug_env.lower() == "true" if debug_env else True,
         "config_path": os.getenv("INPUT_CONFIG_PATH"),
         "event_path": os.getenv("GITHUB_EVENT_PATH"),
         "event_name": os.getenv("GITHUB_EVENT_NAME"),
@@ -227,8 +229,47 @@ def parse_event(inputs):
             sys.exit(1)
             
         command = parts[1]
-        if len(parts) > 2:
-            version = parts[2]
+        
+        # Parse key=value parameters
+        valid_params = {
+            "version": ["string"],
+            "new_version_type": ["none", "patch", "minor", "major", "rc"],
+            "from_version": ["string"],
+            "force": ["none", "draft", "published"],
+            "debug": ["true", "false"]
+        }
+        
+        # Process remaining parts as either version or key=value pairs
+        for i in range(2, len(parts)):
+            part = parts[i]
+            if "=" in part:
+                key, value = part.split("=", 1)
+                if key not in valid_params:
+                    error_msg = f"❌ Invalid parameter: '{key}'\n\nValid parameters: {', '.join(valid_params.keys())}"
+                    print(error_msg)
+                    if inputs["token"]:
+                        post_comment(inputs["token"], inputs["repo_name"], issue_number, error_msg)
+                    sys.exit(1)
+                
+                # Validate value
+                allowed_values = valid_params[key]
+                if allowed_values != ["string"] and value.lower() not in allowed_values:
+                    error_msg = f"❌ Invalid value for '{key}': '{value}'\n\nAllowed values: {', '.join(allowed_values)}"
+                    print(error_msg)
+                    if inputs["token"]:
+                        post_comment(inputs["token"], inputs["repo_name"], issue_number, error_msg)
+                    sys.exit(1)
+                
+                # Set the input value
+                if key == "debug":
+                    inputs["debug"] = value.lower() == "true"
+                else:
+                    inputs[key] = value
+                print(f"Set {key}={value}")
+            else:
+                # Assume it's a version if it looks like a version string
+                if not version:
+                    version = part
         
         # Map 'update' to workflow-like behavior
         if command == "update":
@@ -444,16 +485,23 @@ def run_sync(base_cmd, debug, issue_number, event_name, token, repo_name):
         sys.exit(1)
 
 def main():
+    """
+    Main entry point for the release bot.
+    
+    Keep this function simple and focused on orchestration.
+    Move complex logic into dedicated subfunctions.
+    """
     # Ensure we are in the workspace
     workspace = setup_workspace()
 
-    debug = os.getenv("INPUT_DEBUG", "false").lower() == "true"
+    # Get inputs (with defaults applied)
+    inputs = get_inputs()
+    debug = inputs["debug"]
     
     # Debug output
     if debug:
         print(f"[DEBUG] Workspace: {workspace}")
     
-    inputs = get_inputs()
     command, version, issue_number, event = parse_event(inputs)
 
     print(f"Starting Release Bot. Command: {command}, Version: {version}")
