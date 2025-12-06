@@ -37,10 +37,19 @@ def run_command(cmd, debug=False, capture=True):
         return result.stdout
     else:
         # Stream output in real-time (better for CI/CD logs)
-        result = subprocess.run(shlex.split(cmd), text=True)
+        result = subprocess.run(shlex.split(cmd), capture_output=True, text=True)
 
         if result.returncode != 0:
-            raise Exception(f"Command failed with exit code {result.returncode}")
+            # Capture stderr even when streaming for better error messages
+            error_msg = result.stderr.strip() if result.stderr else f"Command failed with exit code {result.returncode}"
+            raise Exception(error_msg)
+        
+        # Print output for visibility
+        if result.stdout:
+            print(result.stdout)
+        if result.stderr:
+            print(result.stderr, file=sys.stderr)
+        
         return ""
 
 def get_workflow_run_url():
@@ -69,7 +78,10 @@ def post_comment(token, repo_name, issue_number, body):
 
 def get_version_from_ticket(repo_name, ticket_number, token=None):
     """Get version from ticket by checking database and parsing ticket title."""
+    print(f"[get_version_from_ticket] Looking up version for {repo_name} ticket #{ticket_number}")
+    
     # First try: Check if this ticket is associated with a version in release_tickets
+    print("[get_version_from_ticket] Step 1: Checking release_tickets database table...")
     try:
         db = Database()
         db.connect()
@@ -81,12 +93,16 @@ def get_version_from_ticket(repo_name, ticket_number, token=None):
         row = cursor.fetchone()
         db.close()
         if row:
+            print(f"[get_version_from_ticket] ✓ Found version in database: {row[0]}")
             return row[0]
+        else:
+            print("[get_version_from_ticket] ✗ No database association found")
     except Exception as e:
-        print(f"Error querying database: {e}")
+        print(f"[get_version_from_ticket] ✗ Error querying database: {e}")
     
     # Second try: Parse version from ticket title (e.g., "✨ Prepare Release 0.0.1-rc.0")
     if token:
+        print("[get_version_from_ticket] Step 2: Fetching ticket from GitHub to parse title...")
         try:
             from github import Auth
             auth = Auth.Token(token)
@@ -94,19 +110,27 @@ def get_version_from_ticket(repo_name, ticket_number, token=None):
             repo = g.get_repo(repo_name)
             issue = repo.get_issue(ticket_number)
             
+            print(f"[get_version_from_ticket] Ticket title: '{issue.title}'")
+            
             # Try to extract version from title using regex
             # Matches patterns like "0.0.1-rc.0", "1.2.3", "v1.2.3", etc.
             import re
+            print("[get_version_from_ticket] Attempting to extract version with regex pattern: v?([0-9]+\\.[0-9]+\\.[0-9]+(?:-[a-zA-Z0-9.]+)?)")
             version_match = re.search(r'v?([0-9]+\.[0-9]+\.[0-9]+(?:-[a-zA-Z0-9.]+)?)', issue.title)
             if version_match:
                 version = version_match.group(1)  # Use group 1, not 0
-                print(f"Extracted version {version} from ticket title: {issue.title}")
+                print(f"[get_version_from_ticket] ✓ Extracted version from title: {version}")
                 return version
+            else:
+                print("[get_version_from_ticket] ✗ No version pattern found in ticket title")
         except Exception as e:
-            print(f"Error fetching ticket details: {e}")
+            print(f"[get_version_from_ticket] ✗ Error fetching ticket details: {e}")
             import traceback
             traceback.print_exc()
+    else:
+        print("[get_version_from_ticket] ✗ No GitHub token available, skipping title parsing")
     
+    print("[get_version_from_ticket] Failed to determine version from ticket")
     return None
 
 def get_version_from_drafts(config_path):
