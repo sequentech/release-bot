@@ -678,12 +678,14 @@ def main() -> None:
 
         elif command == "update":
             # Update behaves like workflow_dispatch: generate + publish
+            # For update, force should default to "draft" if not explicitly set
+            force_mode = inputs.force if inputs.force != "none" else "draft"
             output = handle_workflow_dispatch(
                 base_cmd,
                 version,
                 inputs.new_version_type,
                 inputs.from_version,
-                inputs.force,
+                force_mode,
                 debug,
                 inputs.config_path
             )
