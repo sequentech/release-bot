@@ -429,6 +429,9 @@ def handle_workflow_dispatch(
     Raises:
         Exception: If version cannot be determined or command fails
     """
+    if debug:
+        print(f"[DEBUG] handle_workflow_dispatch called with force='{force}'")
+    
     # 1. Generate
     gen_cmd = f"{base_cmd} generate"
     if version:
@@ -458,8 +461,12 @@ def handle_workflow_dispatch(
 
     # 3. Publish (respects config's release_mode setting)
     pub_cmd = f"{base_cmd} publish {publish_version}"
+    if debug:
+        print(f"[DEBUG] Checking force parameter: force='{force}', condition result: {force and force.lower() != 'none'}")
     if force and force.lower() != "none":
         pub_cmd += f" --force {force}"
+        if debug:
+            print(f"[DEBUG] Added --force {force} to command")
 
     print(f"Publishing release {publish_version}...")
     output = run_command(pub_cmd, debug=debug)
