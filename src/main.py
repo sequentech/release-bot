@@ -43,13 +43,33 @@ def run_command(cmd, debug=False, capture=True):
             raise Exception(f"Command failed with exit code {result.returncode}")
         return ""
 
+def get_workflow_run_url():
+    """Build the GitHub Actions workflow run URL."""
+    repo = os.getenv("GITHUB_REPOSITORY")
+    run_id = os.getenv("GITHUB_RUN_ID")
+    server_url = os.getenv("GITHUB_SERVER_URL", "https://github.com")
+    
+    if repo and run_id:
+        return f"{server_url}/{repo}/actions/runs/{run_id}"
+    return None
+
 def post_comment(token, repo_name, issue_number, body):
-    g = Github(token)
+    from github import Auth
+    auth = Auth.Token(token)
+    g = Github(auth=auth)
     repo = g.get_repo(repo_name)
     issue = repo.get_issue(issue_number)
+    
+    # Add workflow run link if available
+    run_url = get_workflow_run_url()
+    if run_url:
+        body = f"{body}\n\n<sub>[View workflow run details]({run_url})</sub>"
+    
     issue.create_comment(body)
 
-def get_version_from_ticket(repo_name, ticket_number):
+def get_version_from_ticket(repo_name, ticket_number, token=None):
+    """Get version from ticket by checking database and parsing ticket title."""
+    # First try: Check if this ticket is associated with a version in release_tickets
     try:
         db = Database()
         db.connect()
@@ -64,6 +84,27 @@ def get_version_from_ticket(repo_name, ticket_number):
             return row[0]
     except Exception as e:
         print(f"Error querying database: {e}")
+    
+    # Second try: Parse version from ticket title (e.g., "✨ Prepare Release 0.0.1-rc.0")
+    if token:
+        try:
+            from github import Auth
+            auth = Auth.Token(token)
+            g = Github(auth=auth)
+            repo = g.get_repo(repo_name)
+            issue = repo.get_issue(ticket_number)
+            
+            # Try to extract version from title using regex
+            # Matches patterns like "0.0.1-rc.0", "1.2.3", "v1.2.3", etc.
+            import re
+            version_match = re.search(r'\s+v?([0-9]+\.[0-9]+\.[0-9]+(?:-[a-zA-Z0-9.]+)?)', issue.title, re.IGNORECASE)
+            if version_match:
+                version = version_match.group(0)
+                print(f"Extracted version {version} from ticket title: {issue.title}")
+                return version
+        except Exception as e:
+            print(f"Error fetching ticket details: {e}")
+    
     return None
 
 def get_version_from_drafts(config_path):
@@ -201,7 +242,9 @@ def setup_git(token, repo_name):
     subprocess.run(["git", "remote", "set-url", "origin", repo_url], check=True)
 
 def checkout_pr_branch(token, repo_name, issue_number):
-    g = Github(token)
+    from github import Auth
+    auth = Auth.Token(token)
+    g = Github(auth=auth)
     repo = g.get_repo(repo_name)
     pr = repo.get_pull(issue_number)
     current_branch = pr.head.ref
@@ -298,9 +341,9 @@ def resolve_version_from_context(command, version, issue_number, repo_name, even
     """
     if command in ["publish", "update"] and not version:
         if issue_number:
-            version = get_version_from_ticket(repo_name, issue_number)
+            version = get_version_from_ticket(repo_name, issue_number, token)
             if not version:
-                msg = f"❌ Could not find a release version associated with ticket #{issue_number}."
+                msg = f"❌ Could not find a release version associated with ticket #{issue_number}.\nPlease specify version explicitly or ensure the ticket title contains the version (e.g., 'Prepare Release 1.2.3')."
                 print(msg)
                 if event_name == "issue_comment":
                     post_comment(token, repo_name, issue_number, msg)
