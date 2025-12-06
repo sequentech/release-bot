@@ -418,7 +418,8 @@ def handle_workflow_dispatch(
     from_version: Optional[str],
     force: str,
     debug: bool,
-    config_path: Optional[str]
+    config_path: Optional[str],
+    ticket: Optional[int] = None
 ) -> str:
     """
     Handle workflow_dispatch event: generate and publish release.
@@ -467,6 +468,12 @@ def handle_workflow_dispatch(
         pub_cmd += f" --force {force}"
         if debug:
             print(f"[DEBUG] Added --force {force} to command")
+    
+    # Add ticket number if provided
+    if ticket:
+        pub_cmd += f" --ticket {ticket}"
+        if debug:
+            print(f"[DEBUG] Added --ticket {ticket} to command")
 
     print(f"Publishing release {publish_version}...")
     output = run_command(pub_cmd, debug=debug)
@@ -683,7 +690,8 @@ def main() -> None:
                 inputs.from_version,
                 inputs.force,
                 debug,
-                inputs.config_path
+                inputs.config_path,
+                ticket=issue_number
             )
 
         elif command == "update":
@@ -692,6 +700,8 @@ def main() -> None:
             force_mode = inputs.force if (inputs.force and inputs.force.lower() != "none") else "draft"
             if debug:
                 print(f"[DEBUG] Update command: inputs.force='{inputs.force}', force_mode='{force_mode}'")
+                if issue_number:
+                    print(f"[DEBUG] Using issue_number={issue_number} as ticket")
             output = handle_workflow_dispatch(
                 base_cmd,
                 version,
@@ -699,7 +709,8 @@ def main() -> None:
                 inputs.from_version,
                 force_mode,
                 debug,
-                inputs.config_path
+                inputs.config_path,
+                ticket=issue_number
             )
 
         elif command == "publish":
