@@ -644,6 +644,9 @@ def main() -> None:
 
     print(f"Starting Release Bot. Command: {command}, Version: {version}")
     
+    if debug:
+        print(f"[DEBUG] inputs.force from environment: '{inputs.force}' (type: {type(inputs.force).__name__})")
+    
     # Setup Git
     setup_git(inputs.token, inputs.repo_name)
 
@@ -686,7 +689,9 @@ def main() -> None:
         elif command == "update":
             # Update behaves like workflow_dispatch: generate + publish
             # For update, force should default to "draft" if not explicitly set
-            force_mode = inputs.force if inputs.force != "none" else "draft"
+            force_mode = inputs.force if (inputs.force and inputs.force.lower() != "none") else "draft"
+            if debug:
+                print(f"[DEBUG] Update command: inputs.force='{inputs.force}', force_mode='{force_mode}'")
             output = handle_workflow_dispatch(
                 base_cmd,
                 version,
