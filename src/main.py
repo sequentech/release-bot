@@ -5,12 +5,48 @@ import subprocess
 import shlex
 import re
 from pathlib import Path
+from dataclasses import dataclass
+from typing import Optional, Dict, Any, Tuple
 from github import Github
 from release_tool.db import Database
 from release_tool.config import load_config
 from release_tool.commands.publish import _find_draft_releases
 
-def run_command(cmd, debug=False, capture=True):
+
+@dataclass
+class BotInputs:
+    """Typed container for all bot input parameters."""
+    token: str
+    command: Optional[str]
+    version: Optional[str]
+    new_version_type: Optional[str]
+    from_version: Optional[str]
+    force: str
+    debug: bool
+    config_path: Optional[str]
+    event_path: Optional[str]
+    event_name: Optional[str]
+    repo_name: str
+    ref_name: Optional[str]
+
+
+@dataclass
+class ParsedEvent:
+    """Typed container for parsed event data."""
+    command: str
+    version: Optional[str]
+    issue_number: Optional[int]
+    event: Dict[str, Any]
+
+
+@dataclass
+class CommandResult:
+    """Typed container for command execution results."""
+    success: bool
+    message: str
+    output: Optional[str] = None
+
+def run_command(cmd: str, debug: bool = False, capture: bool = True) -> str:
     """
     Run a shell command.
 
@@ -18,6 +54,12 @@ def run_command(cmd, debug=False, capture=True):
         cmd: Command to run
         debug: Enable debug output
         capture: Capture output instead of streaming (needed when parsing output)
+        
+    Returns:
+        Command stdout output
+        
+    Raises:
+        Exception: If command fails with non-zero exit code
     """
     print(f"Running: {cmd}")
 
@@ -59,7 +101,7 @@ def run_command(cmd, debug=False, capture=True):
         
         return ""
 
-def get_workflow_run_url():
+def get_workflow_run_url() -> Optional[str]:
     """Build the GitHub Actions workflow run URL."""
     repo = os.getenv("GITHUB_REPOSITORY")
     run_id = os.getenv("GITHUB_RUN_ID")
@@ -69,7 +111,8 @@ def get_workflow_run_url():
         return f"{server_url}/{repo}/actions/runs/{run_id}"
     return None
 
-def post_comment(token, repo_name, issue_number, body):
+def post_comment(token: str, repo_name: str, issue_number: int, body: str) -> None:
+    """Post a comment to a GitHub issue or PR."""
     from github import Auth
     auth = Auth.Token(token)
     g = Github(auth=auth)
@@ -83,7 +126,7 @@ def post_comment(token, repo_name, issue_number, body):
     
     issue.create_comment(body)
 
-def get_version_from_ticket(repo_name, ticket_number, token=None):
+def get_version_from_ticket(repo_name: str, ticket_number: int, token: Optional[str] = None) -> Optional[str]:
     """Get version from ticket by checking database and parsing ticket title."""
     print(f"[get_version_from_ticket] Looking up version for {repo_name} ticket #{ticket_number}")
     
@@ -140,7 +183,8 @@ def get_version_from_ticket(repo_name, ticket_number, token=None):
     print("[get_version_from_ticket] Failed to determine version from ticket")
     return None
 
-def get_version_from_drafts(config_path):
+def get_version_from_drafts(config_path: Optional[str]) -> Optional[str]:
+    """Extract version from draft release files."""
     try:
         # Load config (will use default path if None)
         config = load_config(config_path)
@@ -164,7 +208,8 @@ def get_version_from_drafts(config_path):
         traceback.print_exc()
     return None
 
-def setup_workspace():
+def setup_workspace() -> Optional[str]:
+    """Setup the GitHub workspace and return its path."""
     workspace = os.getenv("GITHUB_WORKSPACE")
     if workspace:
         # Fix for dubious ownership error in GitHub Actions
@@ -175,7 +220,13 @@ def setup_workspace():
         os.chdir(workspace)
     return workspace
 
-def get_inputs():
+def get_inputs() -> BotInputs:
+    """
+    Load and parse all input parameters from environment variables.
+    
+    Returns:
+        BotInputs instance with all parsed parameters
+    """
     token = os.getenv("INPUT_GITHUB_TOKEN")
     if not token:
         token = os.getenv("GITHUB_TOKEN")
@@ -185,27 +236,36 @@ def get_inputs():
     
     debug_env = os.getenv("INPUT_DEBUG", "true")
     
-    return {
-        "token": token,
-        "command": os.getenv("INPUT_COMMAND"),
-        "version": os.getenv("INPUT_VERSION"),
-        "new_version_type": os.getenv("INPUT_NEW_VERSION_TYPE"),
-        "from_version": os.getenv("INPUT_FROM_VERSION"),
-        "force": os.getenv("INPUT_FORCE", "none"),
-        "debug": debug_env.lower() == "true" if debug_env else True,
-        "config_path": os.getenv("INPUT_CONFIG_PATH"),
-        "event_path": os.getenv("GITHUB_EVENT_PATH"),
-        "event_name": os.getenv("GITHUB_EVENT_NAME"),
-        "repo_name": os.getenv("GITHUB_REPOSITORY"),
-        "ref_name": os.getenv("GITHUB_REF_NAME")
-    }
+    return BotInputs(
+        token=token or "",
+        command=os.getenv("INPUT_COMMAND"),
+        version=os.getenv("INPUT_VERSION"),
+        new_version_type=os.getenv("INPUT_NEW_VERSION_TYPE"),
+        from_version=os.getenv("INPUT_FROM_VERSION"),
+        force=os.getenv("INPUT_FORCE", "none"),
+        debug=debug_env.lower() == "true" if debug_env else True,
+        config_path=os.getenv("INPUT_CONFIG_PATH"),
+        event_path=os.getenv("GITHUB_EVENT_PATH"),
+        event_name=os.getenv("GITHUB_EVENT_NAME"),
+        repo_name=os.getenv("GITHUB_REPOSITORY", ""),
+        ref_name=os.getenv("GITHUB_REF_NAME")
+    )
 
-def parse_event(inputs):
-    event_path = inputs["event_path"]
-    event_name = inputs["event_name"]
-    command = inputs["command"]
-    version = inputs["version"]
-    issue_number = None
+def parse_event(inputs: BotInputs) -> ParsedEvent:
+    """
+    Parse GitHub event and extract command, version, and issue number.
+    
+    Args:
+        inputs: Bot input parameters
+        
+    Returns:
+        ParsedEvent with extracted information
+    """
+    event_path = inputs.event_path
+    event_name = inputs.event_name
+    command = inputs.command
+    version = inputs.version
+    issue_number: Optional[int] = None
     
     # Load event data
     if event_path and os.path.exists(event_path):
@@ -247,8 +307,8 @@ def parse_event(inputs):
                 if key not in valid_params:
                     error_msg = f"❌ Invalid parameter: '{key}'\n\nValid parameters: {', '.join(valid_params.keys())}"
                     print(error_msg)
-                    if inputs["token"]:
-                        post_comment(inputs["token"], inputs["repo_name"], issue_number, error_msg)
+                    if inputs.token:
+                        post_comment(inputs.token, inputs.repo_name, issue_number, error_msg)
                     sys.exit(1)
                 
                 # Validate value
@@ -256,15 +316,21 @@ def parse_event(inputs):
                 if allowed_values != ["string"] and value.lower() not in allowed_values:
                     error_msg = f"❌ Invalid value for '{key}': '{value}'\n\nAllowed values: {', '.join(allowed_values)}"
                     print(error_msg)
-                    if inputs["token"]:
-                        post_comment(inputs["token"], inputs["repo_name"], issue_number, error_msg)
+                    if inputs.token:
+                        post_comment(inputs.token, inputs.repo_name, issue_number, error_msg)
                     sys.exit(1)
                 
                 # Set the input value
                 if key == "debug":
-                    inputs["debug"] = value.lower() == "true"
-                else:
-                    inputs[key] = value
+                    inputs.debug = value.lower() == "true"
+                elif key == "version":
+                    inputs.version = value
+                elif key == "new_version_type":
+                    inputs.new_version_type = value
+                elif key == "from_version":
+                    inputs.from_version = value
+                elif key == "force":
+                    inputs.force = value
                 print(f"Set {key}={value}")
             else:
                 # Assume it's a version if it looks like a version string
@@ -313,15 +379,27 @@ def parse_event(inputs):
         print(f"Event {event_name} not handled and no command provided.")
         sys.exit(0)
         
-    return command, version, issue_number, event
+    return ParsedEvent(
+        command=command,
+        version=version,
+        issue_number=issue_number,
+        event=event
+    )
 
-def setup_git(token, repo_name):
+def setup_git(token: str, repo_name: str) -> None:
+    """Configure git credentials and remote URL."""
     subprocess.run(["git", "config", "--global", "user.name", "Release Bot"], check=True)
     subprocess.run(["git", "config", "--global", "user.email", "release-bot@sequentech.io"], check=True)
     repo_url = f"https://x-access-token:{token}@github.com/{repo_name}.git"
     subprocess.run(["git", "remote", "set-url", "origin", repo_url], check=True)
 
-def checkout_pr_branch(token, repo_name, issue_number):
+def checkout_pr_branch(token: str, repo_name: str, issue_number: int) -> str:
+    """
+    Checkout the branch associated with a pull request.
+    
+    Returns:
+        The name of the checked out branch
+    """
     from github import Auth
     auth = Auth.Token(token)
     g = Github(auth=auth)
@@ -333,7 +411,24 @@ def checkout_pr_branch(token, repo_name, issue_number):
     subprocess.run(["git", "checkout", current_branch], check=True)
     return current_branch
 
-def handle_workflow_dispatch(base_cmd, version, new_version_type, from_version, force, debug, config_path):
+def handle_workflow_dispatch(
+    base_cmd: str,
+    version: Optional[str],
+    new_version_type: Optional[str],
+    from_version: Optional[str],
+    force: str,
+    debug: bool,
+    config_path: Optional[str]
+) -> str:
+    """
+    Handle workflow_dispatch event: generate and publish release.
+    
+    Returns:
+        Success message
+        
+    Raises:
+        Exception: If version cannot be determined or command fails
+    """
     # 1. Generate
     gen_cmd = f"{base_cmd} generate"
     if version:
@@ -372,7 +467,13 @@ def handle_workflow_dispatch(base_cmd, version, new_version_type, from_version, 
         print(output)
     return f"✅ Release {publish_version} processed successfully."
 
-def handle_generate(base_cmd, command, version, debug, current_branch):
+def handle_generate(base_cmd: str, command: str, version: Optional[str], debug: bool, current_branch: str) -> str:
+    """
+    Handle generate command: create release notes.
+    
+    Returns:
+        Status message about changes
+    """
     cmd = f"{base_cmd} generate"
     if version:
         if version.lower() in ['major', 'minor', 'patch', 'rc']:
@@ -393,7 +494,13 @@ def handle_generate(base_cmd, command, version, debug, current_branch):
     else:
         return "(No changes to commit)"
 
-def handle_publish(base_cmd, version, event_name, debug):
+def handle_publish(base_cmd: str, version: str, event_name: str, debug: bool) -> str:
+    """
+    Handle publish command: publish a release.
+    
+    Returns:
+        Success message
+    """
     cmd = f"{base_cmd} publish {version}"
     # If auto-publishing (merged PR or closed issue), force published mode
     if event_name in ["pull_request", "issues"]:
@@ -402,12 +509,25 @@ def handle_publish(base_cmd, version, event_name, debug):
     run_command(cmd, debug=debug)
     return "✅ Published successfully."
 
-def handle_list(base_cmd, debug):
+def handle_list(base_cmd: str, debug: bool) -> str:
+    """
+    Handle list command: show available releases.
+    
+    Returns:
+        Success message
+    """
     cmd = f"{base_cmd} publish --list"
     run_command(cmd, debug=debug)
     return "✅ List command completed."
 
-def resolve_version_from_context(command, version, issue_number, repo_name, event_name, token):
+def resolve_version_from_context(
+    command: str,
+    version: Optional[str],
+    issue_number: Optional[int],
+    repo_name: str,
+    event_name: str,
+    token: str
+) -> Optional[str]:
     """
     Resolve version from ticket if missing for commands that require it.
     
@@ -440,7 +560,7 @@ def resolve_version_from_context(command, version, issue_number, repo_name, even
             sys.exit(1)
     return version
 
-def build_base_command(config_path, debug):
+def build_base_command(config_path: Optional[str], debug: bool) -> str:
     """
     Build the base release-tool command with appropriate flags.
     
@@ -458,7 +578,14 @@ def build_base_command(config_path, debug):
         base_cmd += " --debug"
     return base_cmd
 
-def run_sync(base_cmd, debug, issue_number, event_name, token, repo_name):
+def run_sync(
+    base_cmd: str,
+    debug: bool,
+    issue_number: Optional[int],
+    event_name: str,
+    token: str,
+    repo_name: str
+) -> None:
     """
     Run the sync command and handle errors.
     
@@ -484,7 +611,7 @@ def run_sync(base_cmd, debug, issue_number, event_name, token, repo_name):
             post_comment(token, repo_name, issue_number, msg)
         sys.exit(1)
 
-def main():
+def main() -> None:
     """
     Main entry point for the release bot.
     
@@ -496,39 +623,43 @@ def main():
 
     # Get inputs (with defaults applied)
     inputs = get_inputs()
-    debug = inputs["debug"]
+    debug = inputs.debug
     
     # Debug output
     if debug:
         print(f"[DEBUG] Workspace: {workspace}")
     
-    command, version, issue_number, event = parse_event(inputs)
+    parsed = parse_event(inputs)
+    command = parsed.command
+    version = parsed.version
+    issue_number = parsed.issue_number
+    event = parsed.event
 
     print(f"Starting Release Bot. Command: {command}, Version: {version}")
     
     # Setup Git
-    setup_git(inputs["token"], inputs["repo_name"])
+    setup_git(inputs.token, inputs.repo_name)
 
-    current_branch = os.getenv("GITHUB_REF_NAME")
+    current_branch = os.getenv("GITHUB_REF_NAME") or "main"
     
     # If PR comment, checkout the PR branch
-    if inputs["event_name"] == "issue_comment" and "pull_request" in event["issue"]:
-        current_branch = checkout_pr_branch(inputs["token"], inputs["repo_name"], issue_number)
+    if inputs.event_name == "issue_comment" and "pull_request" in event.get("issue", {}):
+        current_branch = checkout_pr_branch(inputs.token, inputs.repo_name, issue_number)
 
     # Build base command
-    base_cmd = build_base_command(inputs["config_path"], debug)
+    base_cmd = build_base_command(inputs.config_path, debug)
 
     # Stateless: Always sync first
-    run_sync(base_cmd, debug, issue_number, inputs["event_name"], inputs["token"], inputs["repo_name"])
+    run_sync(base_cmd, debug, issue_number, inputs.event_name, inputs.token, inputs.repo_name)
 
     # Resolve version from context if needed
     version = resolve_version_from_context(
         command, 
         version, 
         issue_number, 
-        inputs["repo_name"], 
-        inputs["event_name"],
-        inputs["token"]
+        inputs.repo_name, 
+        inputs.event_name,
+        inputs.token
     )
 
     # Execute command
@@ -538,11 +669,11 @@ def main():
             output = handle_workflow_dispatch(
                 base_cmd,
                 version,
-                inputs["new_version_type"],
-                inputs["from_version"],
-                inputs["force"],
+                inputs.new_version_type,
+                inputs.from_version,
+                inputs.force,
                 debug,
-                inputs["config_path"]
+                inputs.config_path
             )
 
         elif command == "update":
@@ -550,15 +681,17 @@ def main():
             output = handle_workflow_dispatch(
                 base_cmd,
                 version,
-                inputs["new_version_type"],
-                inputs["from_version"],
-                inputs["force"],
+                inputs.new_version_type,
+                inputs.from_version,
+                inputs.force,
                 debug,
-                inputs["config_path"]
+                inputs.config_path
             )
 
         elif command == "publish":
-            output = handle_publish(base_cmd, version, inputs["event_name"], debug)
+            if not version:
+                raise Exception("Version is required for publish command")
+            output = handle_publish(base_cmd, version, inputs.event_name, debug)
         
         elif command == "generate":
             output = handle_generate(base_cmd, command, version, debug, current_branch)
@@ -570,10 +703,10 @@ def main():
             raise Exception(f"Unknown command: {command}")
             
         print(output)
-        if issue_number and inputs["event_name"] == "issue_comment":
+        if issue_number and inputs.event_name == "issue_comment":
             post_comment(
-                inputs["token"],
-                inputs["repo_name"],
+                inputs.token,
+                inputs.repo_name,
                 issue_number,
                 f"✅ Command `{command}` succeeded:\n\n{output}"
             )
@@ -585,8 +718,8 @@ def main():
         print(msg)
         print("Full traceback:")
         traceback.print_exc()
-        if issue_number and inputs["event_name"] == "issue_comment":
-            post_comment(inputs["token"], inputs["repo_name"], issue_number, msg)
+        if issue_number and inputs.event_name == "issue_comment":
+            post_comment(inputs.token, inputs.repo_name, issue_number, msg)
         sys.exit(1)
 
 if __name__ == "__main__":
