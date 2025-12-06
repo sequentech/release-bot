@@ -39,16 +39,23 @@ def run_command(cmd, debug=False, capture=True):
         # Stream output in real-time (better for CI/CD logs)
         result = subprocess.run(shlex.split(cmd), capture_output=True, text=True)
 
-        if result.returncode != 0:
-            # Capture stderr even when streaming for better error messages
-            error_msg = result.stderr.strip() if result.stderr else f"Command failed with exit code {result.returncode}"
-            raise Exception(error_msg)
-        
-        # Print output for visibility
+        # Print output for visibility (before checking error)
         if result.stdout:
             print(result.stdout)
         if result.stderr:
             print(result.stderr, file=sys.stderr)
+
+        if result.returncode != 0:
+            # Capture both stdout and stderr for better error messages
+            error_parts = []
+            if result.stderr and result.stderr.strip():
+                error_parts.append(result.stderr.strip())
+            if result.stdout and result.stdout.strip():
+                # Sometimes errors are in stdout
+                error_parts.append(result.stdout.strip())
+            
+            error_msg = "\n".join(error_parts) if error_parts else f"Command failed with exit code {result.returncode}"
+            raise Exception(error_msg)
         
         return ""
 
@@ -300,7 +307,9 @@ def handle_workflow_dispatch(base_cmd, version, new_version_type, from_version, 
         gen_cmd += f" --from-version {from_version}"
 
     print(f"Generating release notes with command: {gen_cmd}")
-    run_command(gen_cmd, debug=debug, capture=False)
+    output = run_command(gen_cmd, debug=debug)
+    if output:
+        print(output)
     
     # 2. Determine version for publish
     publish_version = version if version else get_version_from_drafts(config_path)
@@ -317,7 +326,9 @@ def handle_workflow_dispatch(base_cmd, version, new_version_type, from_version, 
         pub_cmd += f" --force {force}"
 
     print(f"Publishing release {publish_version}...")
-    run_command(pub_cmd, debug=debug, capture=False)
+    output = run_command(pub_cmd, debug=debug)
+    if output:
+        print(output)
     return f"✅ Release {publish_version} processed successfully."
 
 def handle_generate(base_cmd, command, version, debug, current_branch):
