@@ -278,6 +278,83 @@ def handle_list(base_cmd, debug):
     run_command(cmd, debug=debug)
     return "✅ List command completed."
 
+def resolve_version_from_context(command, version, issue_number, repo_name, event_name, token):
+    """
+    Resolve version from ticket if missing for commands that require it.
+    
+    Args:
+        command: The command being executed
+        version: The version provided (may be None)
+        issue_number: The issue/ticket number
+        repo_name: The repository name
+        event_name: The GitHub event name
+        token: GitHub token for posting comments
+        
+    Returns:
+        The resolved version string
+        
+    Raises:
+        SystemExit: If version cannot be resolved
+    """
+    if command in ["publish", "update"] and not version:
+        if issue_number:
+            version = get_version_from_ticket(repo_name, issue_number)
+            if not version:
+                msg = f"❌ Could not find a release version associated with ticket #{issue_number}."
+                print(msg)
+                if event_name == "issue_comment":
+                    post_comment(token, repo_name, issue_number, msg)
+                sys.exit(1)
+            print(f"Resolved version {version} from ticket #{issue_number}")
+        else:
+            print(f"❌ Version is required for {command}.")
+            sys.exit(1)
+    return version
+
+def build_base_command(config_path, debug):
+    """
+    Build the base release-tool command with appropriate flags.
+    
+    Args:
+        config_path: Path to the config file
+        debug: Whether debug mode is enabled
+        
+    Returns:
+        The base command string
+    """
+    base_cmd = "release-tool --auto"
+    if config_path:
+        base_cmd += f" --config {config_path}"
+    if debug:
+        base_cmd += " --debug"
+    return base_cmd
+
+def run_sync(base_cmd, debug, issue_number, event_name, token, repo_name):
+    """
+    Run the sync command and handle errors.
+    
+    Args:
+        base_cmd: The base release-tool command
+        debug: Whether debug mode is enabled
+        issue_number: The issue/ticket number (for error reporting)
+        event_name: The GitHub event name
+        token: GitHub token for posting comments
+        repo_name: The repository name
+        
+    Raises:
+        SystemExit: If sync fails
+    """
+    try:
+        print("Syncing...")
+        run_command(f"{base_cmd} sync", debug=debug)
+        print("✅ Sync completed successfully")
+    except Exception as e:
+        msg = f"❌ Sync failed:\n```\n{e}\n```"
+        print(msg)
+        if issue_number and event_name == "issue_comment":
+            post_comment(token, repo_name, issue_number, msg)
+        sys.exit(1)
+
 def main():
     # Ensure we are in the workspace
     workspace = setup_workspace()
@@ -302,40 +379,21 @@ def main():
     if inputs["event_name"] == "issue_comment" and "pull_request" in event["issue"]:
         current_branch = checkout_pr_branch(inputs["token"], inputs["repo_name"], issue_number)
 
-    base_cmd = "release-tool --auto"
-    if inputs["config_path"]:
-        base_cmd += f" --config {inputs['config_path']}"
-    
-    # Add --debug flag to base command if debug is enabled
-    if debug:
-        base_cmd += " --debug"
+    # Build base command
+    base_cmd = build_base_command(inputs["config_path"], debug)
 
     # Stateless: Always sync first
-    try:
-        print("Syncing...")
-        run_command(f"{base_cmd} sync", debug=debug)
-        print("✅ Sync completed successfully")
-    except Exception as e:
-        msg = f"❌ Sync failed:\n```\n{e}\n```"
-        print(msg)
-        if issue_number and inputs["event_name"] == "issue_comment":
-            post_comment(inputs["token"], inputs["repo_name"], issue_number, msg)
-        sys.exit(1)
+    run_sync(base_cmd, debug, issue_number, inputs["event_name"], inputs["token"], inputs["repo_name"])
 
-    # Resolve version if missing for publish
-    if command == "publish" and not version:
-        if issue_number:
-            version = get_version_from_ticket(inputs["repo_name"], issue_number)
-            if not version:
-                msg = f"❌ Could not find a release version associated with ticket #{issue_number}."
-                print(msg)
-                if inputs["event_name"] == "issue_comment":
-                    post_comment(inputs["token"], inputs["repo_name"], issue_number, msg)
-                sys.exit(1)
-            print(f"Resolved version {version} from ticket #{issue_number}")
-        else:
-             print("❌ Version is required for publish.")
-             sys.exit(1)
+    # Resolve version from context if needed
+    version = resolve_version_from_context(
+        command, 
+        version, 
+        issue_number, 
+        inputs["repo_name"], 
+        inputs["event_name"],
+        inputs["token"]
+    )
 
     # Execute command
     try:
