@@ -97,18 +97,21 @@ def get_version_from_ticket(repo_name, ticket_number, token=None):
             # Try to extract version from title using regex
             # Matches patterns like "0.0.1-rc.0", "1.2.3", "v1.2.3", etc.
             import re
-            version_match = re.search(r'\s+v?([0-9]+\.[0-9]+\.[0-9]+(?:-[a-zA-Z0-9.]+)?)', issue.title, re.IGNORECASE)
+            version_match = re.search(r'v?([0-9]+\.[0-9]+\.[0-9]+(?:-[a-zA-Z0-9.]+)?)', issue.title)
             if version_match:
-                version = version_match.group(0)
+                version = version_match.group(1)  # Use group 1, not 0
                 print(f"Extracted version {version} from ticket title: {issue.title}")
                 return version
         except Exception as e:
             print(f"Error fetching ticket details: {e}")
+            import traceback
+            traceback.print_exc()
     
     return None
 
 def get_version_from_drafts(config_path):
     try:
+        # Load config (will use default path if None)
         config = load_config(config_path)
         draft_files = _find_draft_releases(config)
         if draft_files:
@@ -120,9 +123,14 @@ def get_version_from_drafts(config_path):
                 version_str = filename[:-4]
             elif filename.endswith("-release"):
                 version_str = filename[:-8]
+            print(f"Detected version {version_str} from draft file: {first_file.name}")
             return version_str
+        else:
+            print("No draft files found")
     except Exception as e:
         print(f"Warning: Failed to detect version from draft files: {e}")
+        import traceback
+        traceback.print_exc()
     return None
 
 def setup_workspace():
@@ -258,24 +266,26 @@ def handle_workflow_dispatch(base_cmd, version, new_version_type, from_version, 
     gen_cmd = f"{base_cmd} generate"
     if version:
         gen_cmd += f" {version}"
-    if new_version_type and new_version_type.lower() != "none":
+    elif new_version_type and new_version_type.lower() != "none":
         gen_cmd += f" --new {new_version_type}"
+    else:
+        # If no version or new_version_type, generate will auto-detect
+        pass
 
     if from_version:
         gen_cmd += f" --from-version {from_version}"
 
-    print(f"Generating release notes...")
-    run_command(gen_cmd, debug=debug)
+    print(f"Generating release notes with command: {gen_cmd}")
+    run_command(gen_cmd, debug=debug, capture=False)
     
     # 2. Determine version for publish
-    publish_version = get_version_from_drafts(config_path)
-    if not publish_version and version:
-        publish_version = version
+    publish_version = version if version else get_version_from_drafts(config_path)
 
     if publish_version:
-        print(f"Detected generated version from draft file: {publish_version}")
+        print(f"Using version for publish: {publish_version}")
     else:
-        raise Exception("Could not determine generated version.")
+        raise Exception("Could not determine version. No draft files found and no version specified. " +
+                       "Please specify a version or ensure release notes are generated first.")
 
     # 3. Publish (respects config's release_mode setting)
     pub_cmd = f"{base_cmd} publish {publish_version}"
@@ -283,7 +293,7 @@ def handle_workflow_dispatch(base_cmd, version, new_version_type, from_version, 
         pub_cmd += f" --force {force}"
 
     print(f"Publishing release {publish_version}...")
-    run_command(pub_cmd, debug=debug)
+    run_command(pub_cmd, debug=debug, capture=False)
     return f"✅ Release {publish_version} processed successfully."
 
 def handle_generate(base_cmd, command, version, debug, current_branch):
@@ -486,8 +496,12 @@ def main():
             )
             
     except Exception as e:
-        msg = f"❌ Command `{command}` failed:\n```\n{e}\n```"
+        import traceback
+        error_details = str(e) if str(e) else traceback.format_exc()
+        msg = f"❌ Command `{command}` failed:\n```\n{error_details}\n```"
         print(msg)
+        print("Full traceback:")
+        traceback.print_exc()
         if issue_number and inputs["event_name"] == "issue_comment":
             post_comment(inputs["token"], inputs["repo_name"], issue_number, msg)
         sys.exit(1)
