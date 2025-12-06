@@ -795,14 +795,14 @@ draft_output_path = ".release_tool_cache/draft-releases/{{code_repo}}/{{version}
 #   - "assets/{{version}}": Simple structure
 #
 # Default: "docs/releases/assets/{{version}}"
-assets_path = "docs/docusaurus/docs/releases/release-{{major}}.{{minor}}/assets"
+assets_path = "docs/releases/{{version}}/assets/"
 
 # download_media: Download images and videos from ticket descriptions
 # When true: Downloads media files and updates references to local paths
 # When false: Keeps original URLs in release notes
 # Default: true
 # RECOMMENDED: true for static sites (Docusaurus), false for GitHub releases
-download_media = false
+download_media = true
 
 # create_github_release: Automatically create a GitHub release
 # When true: Uploads release notes to GitHub Releases
