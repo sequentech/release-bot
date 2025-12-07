@@ -346,14 +346,46 @@ def parse_event(inputs: BotInputs) -> ParsedEvent:
         action = event.get("action")
         merged = event.get("pull_request", {}).get("merged")
         if action == "closed" and merged:
+            pr_data = event["pull_request"]
+            pr_number = pr_data.get("number")
+            branch_name = pr_data["head"]["ref"]
+            pr_title = pr_data.get("title", "")
+            pr_body = pr_data.get("body", "") or ""
+            
             # Check if it's a release PR
-            branch_name = event["pull_request"]["head"]["ref"]
-            # Assuming release branch format: release/vX.Y.Z or release/X.Y.Z
             match = re.match(r"release/v?(.+)", branch_name)
             if match:
                 version = match.group(1)
                 command = "publish"
-                print(f"Detected release PR merge for version {version}")
+                print(f"Detected release PR merge for version {version} (PR #{pr_number})")
+                
+                # Try to extract associated ticket/issue from PR
+                # Method 1: Look for closing keywords in PR body (e.g., "Closes #123", "Fixes #456")
+                ticket_pattern = r'(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)'
+                ticket_matches = re.findall(ticket_pattern, pr_body, re.IGNORECASE)
+                
+                # Method 2: Look for issue references in PR body (e.g., "Related to #123")
+                if not ticket_matches:
+                    ticket_pattern = r'(?:related to|see|issue)\s+#(\d+)'
+                    ticket_matches = re.findall(ticket_pattern, pr_body, re.IGNORECASE)
+                
+                # Method 3: Look for bare issue references (e.g., "#123")
+                if not ticket_matches:
+                    ticket_pattern = r'#(\d+)'
+                    ticket_matches = re.findall(ticket_pattern, pr_body)
+                
+                # Use the first found ticket
+                if ticket_matches:
+                    issue_number = int(ticket_matches[0])
+                    print(f"Found associated ticket from PR body: #{issue_number}")
+                
+                # Fallback: Try to extract version from PR title if branch version seems incomplete
+                # Pattern: "Release v1.2.3" or "Prepare Release 1.2.3-rc.0"
+                if not version or version == "":
+                    version_match = re.search(r'v?([0-9]+\.[0-9]+\.[0-9]+(?:-[a-zA-Z0-9.]+)?)', pr_title)
+                    if version_match:
+                        version = version_match.group(1)
+                        print(f"Extracted version from PR title: {version}")
             else:
                 print("PR merged but not a release branch. Exiting.")
                 sys.exit(0)
@@ -516,8 +548,9 @@ def handle_publish(base_cmd: str, version: str, event_name: str, debug: bool) ->
         Success message
     """
     cmd = f"{base_cmd} publish {version}"
-    # If auto-publishing (merged PR or closed issue), force published mode
-    if event_name in ["pull_request", "issues"]:
+    # If auto-publishing closed issue, force published mode
+    # Note: PR merges are handled separately with just-publish mode
+    if event_name == "issues":
             cmd += " --release-mode published"
 
     run_command(cmd, debug=debug)
@@ -716,7 +749,22 @@ def main() -> None:
         elif command == "publish":
             if not version:
                 raise Exception("Version is required for publish command")
-            output = handle_publish(base_cmd, version, inputs.event_name, debug)
+            # For PR merge events, use just-publish mode and associate ticket
+            if inputs.event_name == "pull_request":
+                pub_cmd = f"{base_cmd} publish {version} --release-mode just-publish"
+                if issue_number:
+                    pub_cmd += f" --ticket {issue_number}"
+                    if debug:
+                        print(f"[DEBUG] Publishing with ticket #{issue_number}")
+                if debug:
+                    print(f"[DEBUG] Using just-publish mode for PR merge")
+                print(f"Publishing release {version}...")
+                output_text = run_command(pub_cmd, debug=debug)
+                if output_text:
+                    print(output_text)
+                output = f"✅ Release {version} marked as published successfully."
+            else:
+                output = handle_publish(base_cmd, version, inputs.event_name, debug)
         
         elif command == "generate":
             output = handle_generate(base_cmd, command, version, debug, current_branch)
