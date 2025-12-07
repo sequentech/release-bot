@@ -149,8 +149,9 @@ Interact with the bot by commenting on Issues or Pull Requests created by the wo
 The bot intelligently handles release publishing based on the trigger:
 
 #### PR Merge Auto-Publishing
-When a PR with a branch name like `release/v1.2.3` is merged:
-1. Bot extracts version from branch name (or PR title as fallback)
+When a PR from a release branch is merged:
+1. Bot extracts version from branch name using pattern from config (default: `release/{major}.{minor}`)
+   - Fallback: Parse PR title if branch doesn't match pattern
 2. Searches PR body for associated ticket references
 3. Runs: `release-tool publish 1.2.3 --release-mode just-publish --ticket <number>`
 4. **Just-Publish Mode**: Only marks the existing draft release as published without:
@@ -158,7 +159,9 @@ When a PR with a branch name like `release/v1.2.3` is merged:
    - Regenerating release notes
    - Modifying any release properties
 
-**Requirements**: `on.pull_request` must be configured in the workflow for branches `release/**`
+**Requirements**: 
+- `on.pull_request` must be configured in the workflow for branches matching your pattern (e.g., `release/**`)
+- Branch pattern is read from `branch_policy.release_branch_template` in config (default: `release/{major}.{minor}`)
 
 #### Issue Close Auto-Publishing
 When a tracking issue for a release is closed:

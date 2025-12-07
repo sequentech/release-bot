@@ -352,10 +352,26 @@ def parse_event(inputs: BotInputs) -> ParsedEvent:
             pr_title = pr_data.get("title", "")
             pr_body = pr_data.get("body", "") or ""
             
+            # Load config to get branch pattern
+            try:
+                config = load_config(inputs.config_path)
+                branch_template = config.branch_policy.release_branch_template
+                # Convert Jinja2 template to regex pattern
+                # e.g., "release/{major}.{minor}" -> r"release/(\d+)\.(\d+)"
+                # e.g., "release/v{major}.{minor}.{patch}" -> r"release/v(\d+)\.(\d+)\.(\d+)"
+                pattern = branch_template.replace(".", r"\.")
+                pattern = re.sub(r'\{[^}]+\}', r'([\\d.]+(?:-[a-zA-Z0-9.]+)?)', pattern)
+                print(f"Using branch pattern from config: {branch_template} -> {pattern}")
+            except Exception as e:
+                # Fallback to default pattern if config loading fails
+                pattern = r"release/v?(.+)"
+                print(f"Warning: Could not load config, using default pattern: {e}")
+            
             # Check if it's a release PR
-            match = re.match(r"release/v?(.+)", branch_name)
+            match = re.match(pattern, branch_name)
             if match:
-                version = match.group(1)
+                # Extract version from all captured groups
+                version = match.group(1) if match.lastindex == 1 else '.'.join(g for g in match.groups() if g)
                 command = "publish"
                 print(f"Detected release PR merge for version {version} (PR #{pr_number})")
                 
@@ -387,7 +403,7 @@ def parse_event(inputs: BotInputs) -> ParsedEvent:
                         version = version_match.group(1)
                         print(f"Extracted version from PR title: {version}")
             else:
-                print("PR merged but not a release branch. Exiting.")
+                print(f"PR merged but not a release branch (branch {branch_name}). Exiting.")
                 sys.exit(0)
         else:
             print(f"Pull request event {action} (merged={merged}) ignored.")
