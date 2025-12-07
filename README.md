@@ -7,8 +7,12 @@ A GitHub Action and Bot for managing releases using `release-tool`.
 Release Bot automates your release workflow by integrating `release-tool` directly into GitHub Actions. It supports:
 
 1.  **Automated Release Generation**: Create release notes and bump versions via manual triggers.
-2.  **ChatOps**: Interact with the bot via comments on Issues and Pull Requests (e.g., `/release update`).
+2.  **ChatOps**: Interact with the bot via comments on Issues and Pull Requests (e.g., `/release-bot update`).
 3.  **Auto-Publishing**: Automatically publish releases when a release PR is merged or a release ticket is closed.
+4.  **Smart Publishing**: Uses different release modes based on the trigger:
+    - **PR Merge**: Uses `just-publish` mode to mark existing draft releases as published without recreating tags
+    - **Issue Close**: Uses `published` mode for full release creation
+    - **Manual**: Respects configuration settings
 
 ## Configuration
 
@@ -113,7 +117,7 @@ You can manually trigger the workflow from the "Actions" tab in GitHub.
 - **Auto-bump type**: Select `patch`, `minor`, or `major` to automatically calculate the next version.
 - **Version**: Optionally specify a concrete version (e.g., `2.0.0`).
 
-### ChatOps
+### ChatOps Commands
 
 Interact with the bot by commenting on Issues or Pull Requests created by the workflow.
 
@@ -122,13 +126,57 @@ Interact with the bot by commenting on Issues or Pull Requests created by the wo
 *   **`/release-bot generate [version]`**: Only generates release notes without publishing.
 *   **`/release-bot list`**: Lists drafts ready to be published.
 
-**Note** this only works if the `on.issue_comment` is properly configured in the github action workflow.
+**Note**: ChatOps only works if `on.issue_comment` is properly configured in the GitHub Action workflow.
+
+#### Command Behavior Details
+
+- **Version Detection**: If no version is specified, the bot will:
+  1. Check the database for associated releases
+  2. Parse the ticket title (e.g., "✨ Prepare Release 1.2.3")
+  3. Extract from PR branch name (e.g., `release/v1.2.3`)
+  4. Extract from PR title as fallback
+
+- **Automatic Ticket Association**: When a PR is merged, the bot:
+  1. Extracts the PR body content
+  2. Searches for ticket references using patterns:
+     - Closing keywords: `closes #123`, `fixes #456`, `resolves #789`
+     - Related keywords: `related to #123`, `see #456`, `issue #789`
+     - Bare references: `#123`
+  3. Associates the found ticket with the release
 
 ### Auto-Publishing
 
-The bot is smart enough to handle marking the release as published:
-*   **PR Merged**: When a PR with a branch name like `release/v1.2.3` is merged, the bot automatically publishes version `1.2.3`. **Note** this only works if the `on.pull_request` is properly configured in the github action workflow.
-*   **Issue Closed**: When a tracking issue for a release is closed, the bot finds the associated version and publishes it. **Note** this only works if the `on.issues` is properly configured in the github action workflow.
+The bot intelligently handles release publishing based on the trigger:
+
+#### PR Merge Auto-Publishing
+When a PR with a branch name like `release/v1.2.3` is merged:
+1. Bot extracts version from branch name (or PR title as fallback)
+2. Searches PR body for associated ticket references
+3. Runs: `release-tool publish 1.2.3 --release-mode just-publish --ticket <number>`
+4. **Just-Publish Mode**: Only marks the existing draft release as published without:
+   - Recreating git tags
+   - Regenerating release notes
+   - Modifying any release properties
+
+**Requirements**: `on.pull_request` must be configured in the workflow for branches `release/**`
+
+#### Issue Close Auto-Publishing
+When a tracking issue for a release is closed:
+1. Bot finds the associated version from the issue
+2. Runs: `release-tool publish <version> --release-mode published`
+3. **Published Mode**: Creates or updates the full release with tags and notes
+
+**Requirements**: `on.issues` must be configured in the workflow
+
+#### Release Modes Explained
+
+- **`draft`**: Creates a draft release (not visible to public)
+- **`published`**: Creates or updates a published release with full tag/notes handling
+- **`just-publish`**: Only marks an existing release as published (preserves all properties)
+  - ✅ Perfect for PR merge automation
+  - ✅ Preserves existing release notes and properties
+  - ✅ No git operations performed
+  - ❌ Fails if no existing release found
 
 ## Documentation
 
