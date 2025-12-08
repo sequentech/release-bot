@@ -487,6 +487,9 @@ def handle_workflow_dispatch(
     gen_cmd = f"{base_cmd} generate"
     if version:
         gen_cmd += f" {version}"
+        # Support partial version + bump type (e.g., "0.0.1 --new rc" → "0.0.1-rc.1")
+        if new_version_type and new_version_type.lower() != "none":
+            gen_cmd += f" --new {new_version_type}"
     elif new_version_type and new_version_type.lower() != "none":
         gen_cmd += f" --new {new_version_type}"
     else:
