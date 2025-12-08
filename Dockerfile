@@ -2,9 +2,17 @@ FROM ghcr.io/sequentech/release-tool:main
 
 WORKDIR /app
 
-# release-tool is already installed in the base image.
-# We just need to copy the bot wrapper.
+# Install Poetry
+RUN pip install --no-cache-dir poetry
 
-COPY src/main.py .
+# Copy Poetry configuration files
+COPY pyproject.toml poetry.lock* ./
 
-ENTRYPOINT ["python", "/app/main.py"]
+# Copy source code
+COPY src/ ./src/
+
+# Install dependencies using Poetry (without creating a virtualenv in Docker)
+RUN poetry config virtualenvs.create false \
+    && poetry install --no-interaction --no-ansi --only main
+
+ENTRYPOINT ["python", "/app/src/main.py"]

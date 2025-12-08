@@ -181,6 +181,68 @@ When a tracking issue for a release is closed:
   - ✅ No git operations performed
   - ❌ Fails if no existing release found
 
+## Development
+
+### Setup
+
+Release Bot uses Poetry for dependency management. To set up the development environment:
+
+```bash
+# Install Poetry if you don't have it
+curl -sSL https://install.python-poetry.org | python3 -
+
+# Clone the repository
+git clone https://github.com/sequentech/release-bot.git
+cd release-bot
+
+# Install dependencies
+poetry install
+
+# Run tests
+poetry run pytest tests/ -v
+
+# Run tests with coverage
+poetry run pytest tests/ -v --cov=src --cov-report=term-missing
+```
+
+### Project Structure
+
+```
+release-bot/
+├── src/
+│   └── main.py          # Main bot logic
+├── tests/
+│   ├── test_pr_merge_detection.py
+│   └── test_run_pull.py
+├── pyproject.toml       # Poetry configuration
+├── Dockerfile           # Docker container definition
+├── action.yml          # GitHub Action metadata
+└── README.md
+```
+
+### Running Tests Locally
+
+```bash
+# Run all tests
+poetry run pytest tests/ -v
+
+# Run specific test file
+poetry run pytest tests/test_run_pull.py -v
+
+# Run with coverage report
+poetry run pytest tests/ --cov=src --cov-report=html
+```
+
+### Continuous Integration
+
+The project includes GitHub Actions workflows for:
+- **Tests**: Runs unit tests on Python 3.11 and 3.12
+- **Docker Build**: Builds and publishes the Docker image
+
+Tests run automatically on:
+- Push to `main` branch
+- Pull requests
+
 ## Documentation
 
 For more details on the underlying tool and configuration options, refer to the [release-tool documentation](https://github.com/sequentech/release-tool).
