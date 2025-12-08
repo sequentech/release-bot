@@ -43,12 +43,9 @@ jobs:
       working-directory: release-tool
       run: poetry install --no-interaction
 
-    - name: Make release-tool available globally
+    - name: Build release-tool wheel
       working-directory: release-tool
-      run: |
-        # Install release-tool in the global Python environment
-        poetry build
-        pip install dist/*.whl
+      run: poetry build
 
     - name: Load cached venv
       id: cached-poetry-dependencies
@@ -65,6 +62,10 @@ jobs:
     - name: Install release-bot project
       working-directory: release-bot
       run: poetry install --no-interaction
+
+    - name: Install release-tool into release-bot venv
+      working-directory: release-bot
+      run: poetry run pip install ../release-tool/dist/*.whl
 
     - name: Run tests
       working-directory: release-bot
