@@ -666,11 +666,11 @@ def run_pull(
         SystemExit: If pull fails
     """
     try:
-        print("Syncing...")
-        run_command(f"{base_cmd} sync", debug=debug)
-        print("✅ Sync completed successfully")
+        print("Pulling...")
+        run_command(f"{base_cmd} pull", debug=debug)
+        print("✅ Pull completed successfully")
     except Exception as e:
-        msg = f"❌ Sync failed:\n```\n{e}\n```"
+        msg = f"❌ Pull failed:\n```\n{e}\n```"
         print(msg)
         if issue_number and event_name == "issue_comment":
             post_comment(token, repo_name, issue_number, msg)
@@ -718,7 +718,7 @@ def main() -> None:
     base_cmd = build_base_command(inputs.config_path, debug)
 
     # Stateless: Always pull first
-    run_sync(base_cmd, debug, issue_number, inputs.event_name, inputs.token, inputs.repo_name)
+    run_pull(base_cmd, debug, issue_number, inputs.event_name, inputs.token, inputs.repo_name)
 
     # Resolve version from context if needed
     version = resolve_version_from_context(
