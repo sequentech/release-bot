@@ -24,6 +24,7 @@ class BotInputs:
     force: str
     debug: bool
     config_path: Optional[str]
+    detect_mode: Optional[str]
     event_path: Optional[str]
     event_name: Optional[str]
     repo_name: str
@@ -245,6 +246,7 @@ def get_inputs() -> BotInputs:
         force=os.getenv("INPUT_FORCE", "none"),
         debug=debug_env.lower() == "true" if debug_env else True,
         config_path=os.getenv("INPUT_CONFIG_PATH"),
+        detect_mode=os.getenv("INPUT_DETECT_MODE"),
         event_path=os.getenv("GITHUB_EVENT_PATH"),
         event_name=os.getenv("GITHUB_EVENT_NAME"),
         repo_name=os.getenv("GITHUB_REPOSITORY", ""),
@@ -469,6 +471,7 @@ def handle_workflow_dispatch(
     force: str,
     debug: bool,
     config_path: Optional[str],
+    detect_mode: Optional[str] = None,
     issue: Optional[int] = None
 ) -> str:
     """
@@ -498,6 +501,9 @@ def handle_workflow_dispatch(
 
     if from_version:
         gen_cmd += f" --from-version {from_version}"
+    
+    if detect_mode:
+        gen_cmd += f" --detect-mode {detect_mode}"
 
     print(f"Generating release notes with command: {gen_cmd}")
     output = run_command(gen_cmd, debug=debug)
@@ -747,6 +753,7 @@ def main() -> None:
                 inputs.force,
                 debug,
                 inputs.config_path,
+                detect_mode=inputs.detect_mode,
                 issue=issue_number
             )
 
@@ -766,6 +773,7 @@ def main() -> None:
                 force_mode,
                 debug,
                 inputs.config_path,
+                detect_mode=inputs.detect_mode,
                 issue=issue_number
             )
 

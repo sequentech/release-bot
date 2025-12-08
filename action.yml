@@ -28,6 +28,10 @@ inputs:
     description: 'Path to release_tool.toml'
     required: false
     default: '.release_tool.toml'
+  detect_mode:
+    description: 'Detection mode (published or all)'
+    required: false
+    default: 'published'
 runs:
   using: 'docker'
   image: 'Dockerfile'

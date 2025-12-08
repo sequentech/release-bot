@@ -78,3 +78,4 @@ jobs:
           force: ${{ inputs.force }}
           debug: ${{ inputs.debug }}
           config_path: ${{ inputs.config_path }}
+          detect_mode: ${{ inputs.detect_mode }}
