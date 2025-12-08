@@ -16,15 +16,27 @@ git clone https://github.com/sequentech/release-bot.git
 cd release-bot
 ```
 
-2. Install dependencies:
+2. Install `release-tool` first (required dependency):
+```bash
+# Clone release-tool if you don't have it
+cd ..
+git clone https://github.com/sequentech/release-tool.git
+cd release-tool
+poetry install
+cd ../release-bot
+```
+
+3. Install release-bot dependencies:
 ```bash
 poetry install
 ```
 
 This will:
 - Create a virtual environment
-- Install all dependencies including `release-tool` from the parent directory
+- Install all dependencies (PyGithub, pytest, etc.)
 - Install development dependencies (pytest, pytest-cov, pytest-mock)
+
+**Note**: For local development, `release-tool` must be installed separately and available in your Python environment. In Docker, it's pre-installed in the base image.
 
 ## Running Tests
 
@@ -143,11 +155,30 @@ poetry show
 docker build -t release-bot:dev .
 ```
 
+**Note**: The Dockerfile uses `ghcr.io/sequentech/release-tool:main` as the base image, which already includes:
+- Python 3.10+
+- `release-tool` package pre-installed
+- All release-tool dependencies
+
+The release-bot Dockerfile only installs additional dependencies (PyGithub) via Poetry.
+
 ### Test Docker Image
 
 ```bash
 docker run --rm -e INPUT_COMMAND=generate -e GITHUB_TOKEN=xxx release-bot:dev
 ```
+
+### Docker Build Process
+
+The Docker build:
+1. Starts from `ghcr.io/sequentech/release-tool:main` base image
+2. Installs Poetry
+3. Copies `pyproject.toml` and `poetry.lock`
+4. Runs `poetry install --only main --no-root` to install PyGithub
+5. Copies source code
+6. Sets Python entrypoint to `/app/src/main.py`
+
+Since `release-tool` is in the base image, Poetry doesn't need to install it.
 
 ## Debugging
 

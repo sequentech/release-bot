@@ -191,7 +191,13 @@ Release Bot uses Poetry for dependency management. To set up the development env
 # Install Poetry if you don't have it
 curl -sSL https://install.python-poetry.org | python3 -
 
-# Clone the repository
+# Clone and install release-tool first (required dependency)
+git clone https://github.com/sequentech/release-tool.git
+cd release-tool
+poetry install
+cd ..
+
+# Clone release-bot repository
 git clone https://github.com/sequentech/release-bot.git
 cd release-bot
 
@@ -204,6 +210,8 @@ poetry run pytest tests/ -v
 # Run tests with coverage
 poetry run pytest tests/ -v --cov=src --cov-report=term-missing
 ```
+
+**Note**: `release-tool` must be installed separately for local development. In Docker environments, it's pre-installed in the base image.
 
 ### Project Structure
 

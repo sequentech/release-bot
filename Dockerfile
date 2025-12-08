@@ -11,8 +11,9 @@ COPY pyproject.toml poetry.lock* ./
 # Copy source code
 COPY src/ ./src/
 
-# Install dependencies using Poetry (without creating a virtualenv in Docker)
+# Install only the additional dependencies (PyGithub)
+# release-tool is already installed in the base image
 RUN poetry config virtualenvs.create false \
-    && poetry install --no-interaction --no-ansi --only main
+    && poetry install --no-interaction --no-ansi --only main --no-root
 
 ENTRYPOINT ["python", "/app/src/main.py"]

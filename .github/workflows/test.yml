@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        python-version: ["3.11", "3.12"]
+        python-version: ["3.12"]
 
     steps:
     - uses: actions/checkout@v4
@@ -42,6 +42,13 @@ jobs:
     - name: Install release-tool dependencies
       working-directory: release-tool
       run: poetry install --no-interaction
+
+    - name: Make release-tool available globally
+      working-directory: release-tool
+      run: |
+        # Install release-tool in the global Python environment
+        poetry build
+        pip install dist/*.whl
 
     - name: Load cached venv
       id: cached-poetry-dependencies
