@@ -8,7 +8,7 @@ Release Bot automates your release workflow by integrating `release-tool` direct
 
 1.  **Automated Release Generation**: Create release notes and bump versions via manual triggers.
 2.  **ChatOps**: Interact with the bot via comments on Issues and Pull Requests (e.g., `/release-bot update`).
-3.  **Auto-Publishing**: Automatically publish releases when a release PR is merged or a release ticket is closed.
+3.  **Auto-Publishing**: Automatically publish releases when a release PR is merged or a release issue is closed.
 4.  **Smart Publishing**: Uses different release modes based on the trigger:
     - **PR Merge**: Uses `just-publish` mode to mark existing draft releases as published without recreating tags
     - **Issue Close**: Uses `published` mode for full release creation
@@ -122,7 +122,7 @@ You can manually trigger the workflow from the "Actions" tab in GitHub.
 Interact with the bot by commenting on Issues or Pull Requests created by the workflow.
 
 *   **`/release-bot update`**: Regenerates the release notes and publishes them (respecting the configured release mode - draft or published). This behaves like the manual workflow trigger, running sync → generate → publish. Useful if you've added more PRs/commits and want to update the release.
-*   **`/release-bot publish [version]`**: Publishes the release associated with the current ticket. The bot automatically detects the version from the ticket if not specified.
+*   **`/release-bot publish [version]`**: Publishes the release associated with the current issue. The bot automatically detects the version from the issue if not specified.
 *   **`/release-bot generate [version]`**: Only generates release notes without publishing.
 *   **`/release-bot list`**: Lists drafts ready to be published.
 
@@ -132,17 +132,17 @@ Interact with the bot by commenting on Issues or Pull Requests created by the wo
 
 - **Version Detection**: If no version is specified, the bot will:
   1. Check the database for associated releases
-  2. Parse the ticket title (e.g., "✨ Prepare Release 1.2.3")
+  2. Parse the issue title (e.g., "✨ Prepare Release 1.2.3")
   3. Extract from PR branch name (e.g., `release/v1.2.3`)
   4. Extract from PR title as fallback
 
-- **Automatic Ticket Association**: When a PR is merged, the bot:
+- **Automatic Issue Association**: When a PR is merged, the bot:
   1. Extracts the PR body content
-  2. Searches for ticket references using patterns:
+  2. Searches for issue references using patterns:
      - Closing keywords: `closes #123`, `fixes #456`, `resolves #789`
      - Related keywords: `related to #123`, `see #456`, `issue #789`
      - Bare references: `#123`
-  3. Associates the found ticket with the release
+  3. Associates the found issue with the release
 
 ### Auto-Publishing
 
@@ -152,14 +152,14 @@ The bot intelligently handles release publishing based on the trigger:
 When a PR from a release branch is merged:
 1. Bot extracts version from branch name using pattern from config (default: `release/{major}.{minor}`)
    - Fallback: Parse PR title if branch doesn't match pattern
-2. Searches PR body for associated ticket references
-3. Runs: `release-tool publish 1.2.3 --release-mode just-publish --ticket <number>`
+2. Searches PR body for associated issue references
+3. Runs: `release-tool publish 1.2.3 --release-mode just-publish --issue <number>`
 4. **Just-Publish Mode**: Only marks the existing draft release as published without:
    - Recreating git tags
    - Regenerating release notes
    - Modifying any release properties
 
-**Requirements**: 
+**Requirements**:
 - `on.pull_request` must be configured in the workflow for branches matching your pattern (e.g., `release/**`)
 - Branch pattern is read from `branch_policy.release_branch_template` in config (default: `release/{major}.{minor}`)
 

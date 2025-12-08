@@ -126,61 +126,61 @@ def post_comment(token: str, repo_name: str, issue_number: int, body: str) -> No
     
     issue.create_comment(body)
 
-def get_version_from_ticket(repo_name: str, ticket_number: int, token: Optional[str] = None) -> Optional[str]:
-    """Get version from ticket by checking database and parsing ticket title."""
-    print(f"[get_version_from_ticket] Looking up version for {repo_name} ticket #{ticket_number}")
-    
-    # First try: Check if this ticket is associated with a version in release_tickets
-    print("[get_version_from_ticket] Step 1: Checking release_tickets database table...")
+def get_version_from_issue(repo_name: str, issue_number: int, token: Optional[str] = None) -> Optional[str]:
+    """Get version from issue by checking database and parsing issue title."""
+    print(f"[get_version_from_issue] Looking up version for {repo_name} issue #{issue_number}")
+
+    # First try: Check if this issue is associated with a version in release_issues
+    print("[get_version_from_issue] Step 1: Checking release_issues database table...")
     try:
         db = Database()
         db.connect()
         cursor = db.conn.cursor()
         cursor.execute(
-            "SELECT version FROM release_tickets WHERE repo_full_name=? AND ticket_number=?",
-            (repo_name, ticket_number)
+            "SELECT version FROM release_issues WHERE repo_full_name=? AND issue_number=?",
+            (repo_name, issue_number)
         )
         row = cursor.fetchone()
         db.close()
         if row:
-            print(f"[get_version_from_ticket] ✓ Found version in database: {row[0]}")
+            print(f"[get_version_from_issue] ✓ Found version in database: {row[0]}")
             return row[0]
         else:
-            print("[get_version_from_ticket] ✗ No database association found")
+            print("[get_version_from_issue] ✗ No database association found")
     except Exception as e:
-        print(f"[get_version_from_ticket] ✗ Error querying database: {e}")
-    
-    # Second try: Parse version from ticket title (e.g., "✨ Prepare Release 0.0.1-rc.0")
+        print(f"[get_version_from_issue] ✗ Error querying database: {e}")
+
+    # Second try: Parse version from issue title (e.g., "✨ Prepare Release 0.0.1-rc.0")
     if token:
-        print("[get_version_from_ticket] Step 2: Fetching ticket from GitHub to parse title...")
+        print("[get_version_from_issue] Step 2: Fetching issue from GitHub to parse title...")
         try:
             from github import Auth
             auth = Auth.Token(token)
             g = Github(auth=auth)
             repo = g.get_repo(repo_name)
-            issue = repo.get_issue(ticket_number)
-            
-            print(f"[get_version_from_ticket] Ticket title: '{issue.title}'")
-            
+            issue = repo.get_issue(issue_number)
+
+            print(f"[get_version_from_issue] Issue title: '{issue.title}'")
+
             # Try to extract version from title using regex
             # Matches patterns like "0.0.1-rc.0", "1.2.3", "v1.2.3", etc.
             import re
-            print("[get_version_from_ticket] Attempting to extract version with regex pattern: v?([0-9]+\\.[0-9]+\\.[0-9]+(?:-[a-zA-Z0-9.]+)?)")
+            print("[get_version_from_issue] Attempting to extract version with regex pattern: v?([0-9]+\\.[0-9]+\\.[0-9]+(?:-[a-zA-Z0-9.]+)?)")
             version_match = re.search(r'v?([0-9]+\.[0-9]+\.[0-9]+(?:-[a-zA-Z0-9.]+)?)', issue.title)
             if version_match:
                 version = version_match.group(1)  # Use group 1, not 0
-                print(f"[get_version_from_ticket] ✓ Extracted version from title: {version}")
+                print(f"[get_version_from_issue] ✓ Extracted version from title: {version}")
                 return version
             else:
-                print("[get_version_from_ticket] ✗ No version pattern found in ticket title")
+                print("[get_version_from_issue] ✗ No version pattern found in issue title")
         except Exception as e:
-            print(f"[get_version_from_ticket] ✗ Error fetching ticket details: {e}")
+            print(f"[get_version_from_issue] ✗ Error fetching issue details: {e}")
             import traceback
             traceback.print_exc()
     else:
-        print("[get_version_from_ticket] ✗ No GitHub token available, skipping title parsing")
-    
-    print("[get_version_from_ticket] Failed to determine version from ticket")
+        print("[get_version_from_issue] ✗ No GitHub token available, skipping title parsing")
+
+    print("[get_version_from_issue] Failed to determine version from issue")
     return None
 
 def get_version_from_drafts(config_path: Optional[str]) -> Optional[str]:
@@ -377,25 +377,25 @@ def parse_event(inputs: BotInputs) -> ParsedEvent:
                 command = "publish"
                 print(f"Detected release PR merge for version {version} (PR #{pr_number})")
                 
-                # Try to extract associated ticket/issue from PR
+                # Try to extract associated issue from PR
                 # Method 1: Look for closing keywords in PR body (e.g., "Closes #123", "Fixes #456")
-                ticket_pattern = r'(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)'
-                ticket_matches = re.findall(ticket_pattern, pr_body, re.IGNORECASE)
-                
+                issue_pattern = r'(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)'
+                issue_matches = re.findall(issue_pattern, pr_body, re.IGNORECASE)
+
                 # Method 2: Look for issue references in PR body (e.g., "Related to #123")
-                if not ticket_matches:
-                    ticket_pattern = r'(?:related to|see|issue)\s+#(\d+)'
-                    ticket_matches = re.findall(ticket_pattern, pr_body, re.IGNORECASE)
-                
+                if not issue_matches:
+                    issue_pattern = r'(?:related to|see|issue)\s+#(\d+)'
+                    issue_matches = re.findall(issue_pattern, pr_body, re.IGNORECASE)
+
                 # Method 3: Look for bare issue references (e.g., "#123")
-                if not ticket_matches:
-                    ticket_pattern = r'#(\d+)'
-                    ticket_matches = re.findall(ticket_pattern, pr_body)
-                
-                # Use the first found ticket
-                if ticket_matches:
-                    issue_number = int(ticket_matches[0])
-                    print(f"Found associated ticket from PR body: #{issue_number}")
+                if not issue_matches:
+                    issue_pattern = r'#(\d+)'
+                    issue_matches = re.findall(issue_pattern, pr_body)
+
+                # Use the first found issue
+                if issue_matches:
+                    issue_number = int(issue_matches[0])
+                    print(f"Found associated issue from PR body: #{issue_number}")
                 
                 # Fallback: Try to extract version from PR title if branch version seems incomplete
                 # Pattern: "Release v1.2.3" or "Prepare Release 1.2.3-rc.0"
@@ -469,7 +469,7 @@ def handle_workflow_dispatch(
     force: str,
     debug: bool,
     config_path: Optional[str],
-    ticket: Optional[int] = None
+    issue: Optional[int] = None
 ) -> str:
     """
     Handle workflow_dispatch event: generate and publish release.
@@ -519,11 +519,11 @@ def handle_workflow_dispatch(
         if debug:
             print(f"[DEBUG] Added --force {force} to command")
     
-    # Add ticket number if provided
-    if ticket:
-        pub_cmd += f" --ticket {ticket}"
+    # Add issue number if provided
+    if issue:
+        pub_cmd += f" --issue {issue}"
         if debug:
-            print(f"[DEBUG] Added --ticket {ticket} to command")
+            print(f"[DEBUG] Added --issue {issue} to command")
 
     print(f"Publishing release {publish_version}...")
     output = run_command(pub_cmd, debug=debug)
@@ -594,32 +594,32 @@ def resolve_version_from_context(
     token: str
 ) -> Optional[str]:
     """
-    Resolve version from ticket if missing for commands that require it.
-    
+    Resolve version from issue if missing for commands that require it.
+
     Args:
         command: The command being executed
         version: The version provided (may be None)
-        issue_number: The issue/ticket number
+        issue_number: The issue number
         repo_name: The repository name
         event_name: The GitHub event name
         token: GitHub token for posting comments
-        
+
     Returns:
         The resolved version string
-        
+
     Raises:
         SystemExit: If version cannot be resolved
     """
     if command in ["publish", "update"] and not version:
         if issue_number:
-            version = get_version_from_ticket(repo_name, issue_number, token)
+            version = get_version_from_issue(repo_name, issue_number, token)
             if not version:
-                msg = f"❌ Could not find a release version associated with ticket #{issue_number}.\nPlease specify version explicitly or ensure the ticket title contains the version (e.g., 'Prepare Release 1.2.3')."
+                msg = f"❌ Could not find a release version associated with issue #{issue_number}.\nPlease specify version explicitly or ensure the issue title contains the version (e.g., 'Prepare Release 1.2.3')."
                 print(msg)
                 if event_name == "issue_comment":
                     post_comment(token, repo_name, issue_number, msg)
                 sys.exit(1)
-            print(f"Resolved version {version} from ticket #{issue_number}")
+            print(f"Resolved version {version} from issue #{issue_number}")
         else:
             print(f"❌ Version is required for {command}.")
             sys.exit(1)
@@ -653,15 +653,15 @@ def run_sync(
 ) -> None:
     """
     Run the sync command and handle errors.
-    
+
     Args:
         base_cmd: The base release-tool command
         debug: Whether debug mode is enabled
-        issue_number: The issue/ticket number (for error reporting)
+        issue_number: The issue number (for error reporting)
         event_name: The GitHub event name
         token: GitHub token for posting comments
         repo_name: The repository name
-        
+
     Raises:
         SystemExit: If sync fails
     """
@@ -742,7 +742,7 @@ def main() -> None:
                 inputs.force,
                 debug,
                 inputs.config_path,
-                ticket=issue_number
+                issue=issue_number
             )
 
         elif command == "update":
@@ -752,7 +752,7 @@ def main() -> None:
             if debug:
                 print(f"[DEBUG] Update command: inputs.force='{inputs.force}', force_mode='{force_mode}'")
                 if issue_number:
-                    print(f"[DEBUG] Using issue_number={issue_number} as ticket")
+                    print(f"[DEBUG] Using issue_number={issue_number} as issue")
             output = handle_workflow_dispatch(
                 base_cmd,
                 version,
@@ -761,19 +761,19 @@ def main() -> None:
                 force_mode,
                 debug,
                 inputs.config_path,
-                ticket=issue_number
+                issue=issue_number
             )
 
         elif command == "publish":
             if not version:
                 raise Exception("Version is required for publish command")
-            # For PR merge events, use just-publish mode and associate ticket
+            # For PR merge events, use just-publish mode and associate issue
             if inputs.event_name == "pull_request":
                 pub_cmd = f"{base_cmd} publish {version} --release-mode just-publish"
                 if issue_number:
-                    pub_cmd += f" --ticket {issue_number}"
+                    pub_cmd += f" --issue {issue_number}"
                     if debug:
-                        print(f"[DEBUG] Publishing with ticket #{issue_number}")
+                        print(f"[DEBUG] Publishing with issue #{issue_number}")
                 if debug:
                     print(f"[DEBUG] Using just-publish mode for PR merge")
                 print(f"Publishing release {version}...")

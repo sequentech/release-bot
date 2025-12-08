@@ -51,8 +51,8 @@ class TestPRMergeDetection:
         # Target is 'main', should NOT match release pattern
         assert not re.match(pattern, target_branch)
     
-    def test_ticket_extraction_closing_keywords(self):
-        """Test ticket extraction with closing keywords."""
+    def test_issue_extraction_closing_keywords(self):
+        """Test issue extraction with closing keywords."""
         pr_bodies = [
             "Closes #123",
             "Fixes #456",
@@ -60,34 +60,34 @@ class TestPRMergeDetection:
             "Fixed #100",
             "Closed #200"
         ]
-        
-        ticket_pattern = r'(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)'
-        
+
+        issue_pattern = r'(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s+#(\d+)'
+
         for body in pr_bodies:
-            matches = re.findall(ticket_pattern, body, re.IGNORECASE)
-            assert len(matches) == 1, f"Should find ticket in: {body}"
+            matches = re.findall(issue_pattern, body, re.IGNORECASE)
+            assert len(matches) == 1, f"Should find issue in: {body}"
     
-    def test_ticket_extraction_related_keywords(self):
-        """Test ticket extraction with related keywords (fallback)."""
+    def test_issue_extraction_related_keywords(self):
+        """Test issue extraction with related keywords (fallback)."""
         pr_bodies = [
             "Related to #111",
             "See #222",
             "Issue #333"
         ]
-        
-        ticket_pattern = r'(?:related to|see|issue)\s+#(\d+)'
-        
+
+        issue_pattern = r'(?:related to|see|issue)\s+#(\d+)'
+
         for body in pr_bodies:
-            matches = re.findall(ticket_pattern, body, re.IGNORECASE)
-            assert len(matches) == 1, f"Should find ticket in: {body}"
+            matches = re.findall(issue_pattern, body, re.IGNORECASE)
+            assert len(matches) == 1, f"Should find issue in: {body}"
     
-    def test_ticket_extraction_bare_references(self):
-        """Test ticket extraction with bare # references (last fallback)."""
+    def test_issue_extraction_bare_references(self):
+        """Test issue extraction with bare # references (last fallback)."""
         pr_body = "This PR addresses #999 and improves performance"
-        
-        ticket_pattern = r'#(\d+)'
-        matches = re.findall(ticket_pattern, pr_body)
-        
+
+        issue_pattern = r'#(\d+)'
+        matches = re.findall(issue_pattern, pr_body)
+
         assert len(matches) >= 1
         assert matches[0] == '999'
     
