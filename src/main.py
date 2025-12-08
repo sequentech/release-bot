@@ -505,13 +505,15 @@ def handle_workflow_dispatch(
         print(output)
     
     # 2. Determine version for push
-    publish_version = version if version else get_version_from_drafts(config_path)
+    # Always detect from draft files after generation, since --new flags can modify the version
+    # (e.g., "0.0.1 --new rc" creates "0.0.1-rc.0", not "0.0.1")
+    publish_version = get_version_from_drafts(config_path)
 
     if publish_version:
         print(f"Using version for push: {publish_version}")
     else:
-        raise Exception("Could not determine version. No draft files found and no version specified. " +
-                       "Please specify a version or ensure release notes are generated first.")
+        raise Exception("Could not determine version. No draft files found after generation. " +
+                       "Please check the generate command output for errors.")
 
     # 3. Push (respects config's release_mode setting)
     pub_cmd = f"{base_cmd} push {publish_version}"
