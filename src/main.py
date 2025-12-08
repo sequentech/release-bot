@@ -348,9 +348,11 @@ def parse_event(inputs: BotInputs) -> ParsedEvent:
         if action == "closed" and merged:
             pr_data = event["pull_request"]
             pr_number = pr_data.get("number")
-            branch_name = pr_data["head"]["ref"]
+            source_branch = pr_data["head"]["ref"]
+            target_branch = pr_data["base"]["ref"]
             pr_title = pr_data.get("title", "")
             pr_body = pr_data.get("body", "") or ""
+            print(f"PR #{pr_number}: {source_branch} → {target_branch}")
             
             # Load config to get branch pattern
             try:
@@ -367,8 +369,8 @@ def parse_event(inputs: BotInputs) -> ParsedEvent:
                 pattern = r"release/v?(.+)"
                 print(f"Warning: Could not load config, using default pattern: {e}")
             
-            # Check if it's a release PR
-            match = re.match(pattern, branch_name)
+            # Check if target branch (where PR merges TO) is a release branch
+            match = re.match(pattern, target_branch)
             if match:
                 # Extract version from all captured groups
                 version = match.group(1) if match.lastindex == 1 else '.'.join(g for g in match.groups() if g)
@@ -403,7 +405,7 @@ def parse_event(inputs: BotInputs) -> ParsedEvent:
                         version = version_match.group(1)
                         print(f"Extracted version from PR title: {version}")
             else:
-                print(f"PR merged but not a release branch (branch {branch_name}). Exiting.")
+                print(f"PR merged to '{target_branch}' which does not match release pattern '{pattern}'. Exiting.")
                 sys.exit(0)
         else:
             print(f"Pull request event {action} (merged={merged}) ignored.")
