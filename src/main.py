@@ -10,7 +10,7 @@ from typing import Optional, Dict, Any, Tuple
 from github import Github
 from release_tool.db import Database
 from release_tool.config import load_config
-from release_tool.commands.publish import _find_draft_releases
+from release_tool.commands.push import _find_draft_releases
 
 
 @dataclass
@@ -341,7 +341,7 @@ def parse_event(inputs: BotInputs) -> ParsedEvent:
         if command == "update":
             command = "update"
 
-    # Handle PR Merge (Auto-Publish)
+    # Handle PR Merge (Auto-Push)
     elif event_name == "pull_request":
         action = event.get("action")
         merged = event.get("pull_request", {}).get("merged")
@@ -374,7 +374,7 @@ def parse_event(inputs: BotInputs) -> ParsedEvent:
             if match:
                 # Extract version from all captured groups
                 version = match.group(1) if match.lastindex == 1 else '.'.join(g for g in match.groups() if g)
-                command = "publish"
+                command = "push"
                 print(f"Detected release PR merge for version {version} (PR #{pr_number})")
                 
                 # Try to extract associated issue from PR
@@ -411,18 +411,18 @@ def parse_event(inputs: BotInputs) -> ParsedEvent:
             print(f"Pull request event {action} (merged={merged}) ignored.")
             sys.exit(0)
 
-    # Handle Issue Close (Auto-Publish)
+    # Handle Issue Close (Auto-Push)
     elif event_name == "issues":
         if event.get("action") == "closed":
             issue_number = event["issue"]["number"]
-            command = "publish"
-            print(f"Issue #{issue_number} closed. Attempting to publish.")
+            command = "push"
+            print(f"Issue #{issue_number} closed. Attempting to push.")
         else:
             print(f"Issue event {event.get('action')} ignored.")
             sys.exit(0)
             
     elif event_name == "workflow_dispatch":
-        # Manual trigger: Sync -> Generate -> Publish
+        # Manual trigger: Pull -> Generate -> Push
         command = "workflow_dispatch"
         
     elif not command:
@@ -501,17 +501,17 @@ def handle_workflow_dispatch(
     if output:
         print(output)
     
-    # 2. Determine version for publish
+    # 2. Determine version for push
     publish_version = version if version else get_version_from_drafts(config_path)
 
     if publish_version:
-        print(f"Using version for publish: {publish_version}")
+        print(f"Using version for push: {publish_version}")
     else:
         raise Exception("Could not determine version. No draft files found and no version specified. " +
                        "Please specify a version or ensure release notes are generated first.")
 
-    # 3. Publish (respects config's release_mode setting)
-    pub_cmd = f"{base_cmd} publish {publish_version}"
+    # 3. Push (respects config's release_mode setting)
+    pub_cmd = f"{base_cmd} push {publish_version}"
     if debug:
         print(f"[DEBUG] Checking force parameter: force='{force}', condition result: {force and force.lower() != 'none'}")
     if force and force.lower() != "none":
@@ -525,7 +525,7 @@ def handle_workflow_dispatch(
         if debug:
             print(f"[DEBUG] Added --issue {issue} to command")
 
-    print(f"Publishing release {publish_version}...")
+    print(f"Pushing release {publish_version}...")
     output = run_command(pub_cmd, debug=debug)
     if output:
         print(output)
@@ -558,21 +558,21 @@ def handle_generate(base_cmd: str, command: str, version: Optional[str], debug: 
     else:
         return "(No changes to commit)"
 
-def handle_publish(base_cmd: str, version: str, event_name: str, debug: bool) -> str:
+def handle_push(base_cmd: str, version: str, event_name: str, debug: bool) -> str:
     """
-    Handle publish command: publish a release.
+    Handle publish command: push a release.
     
     Returns:
         Success message
     """
-    cmd = f"{base_cmd} publish {version}"
-    # If auto-publishing closed issue, force published mode
-    # Note: PR merges are handled separately with just-publish mode
+    cmd = f"{base_cmd} push {version}"
+    # If auto-pushing closed issue, force published mode
+    # Note: PR merges are handled separately with just-push mode
     if event_name == "issues":
             cmd += " --release-mode published"
 
     run_command(cmd, debug=debug)
-    return "✅ Published successfully."
+    return "✅ Pushed successfully."
 
 def handle_list(base_cmd: str, debug: bool) -> str:
     """
@@ -610,7 +610,7 @@ def resolve_version_from_context(
     Raises:
         SystemExit: If version cannot be resolved
     """
-    if command in ["publish", "update"] and not version:
+    if command in ["push", "update"] and not version:
         if issue_number:
             version = get_version_from_issue(repo_name, issue_number, token)
             if not version:
@@ -643,7 +643,7 @@ def build_base_command(config_path: Optional[str], debug: bool) -> str:
         base_cmd += " --debug"
     return base_cmd
 
-def run_sync(
+def run_pull(
     base_cmd: str,
     debug: bool,
     issue_number: Optional[int],
@@ -652,7 +652,7 @@ def run_sync(
     repo_name: str
 ) -> None:
     """
-    Run the sync command and handle errors.
+    Run the pull command and handle errors.
 
     Args:
         base_cmd: The base release-tool command
@@ -663,7 +663,7 @@ def run_sync(
         repo_name: The repository name
 
     Raises:
-        SystemExit: If sync fails
+        SystemExit: If pull fails
     """
     try:
         print("Syncing...")
@@ -717,7 +717,7 @@ def main() -> None:
     # Build base command
     base_cmd = build_base_command(inputs.config_path, debug)
 
-    # Stateless: Always sync first
+    # Stateless: Always pull first
     run_sync(base_cmd, debug, issue_number, inputs.event_name, inputs.token, inputs.repo_name)
 
     # Resolve version from context if needed
@@ -764,25 +764,25 @@ def main() -> None:
                 issue=issue_number
             )
 
-        elif command == "publish":
+        elif command == "push":
             if not version:
                 raise Exception("Version is required for publish command")
-            # For PR merge events, use just-publish mode and associate issue
+            # For PR merge events, use just-push mode and associate issue
             if inputs.event_name == "pull_request":
-                pub_cmd = f"{base_cmd} publish {version} --release-mode just-publish"
+                pub_cmd = f"{base_cmd} push {version} --release-mode just-push"
                 if issue_number:
                     pub_cmd += f" --issue {issue_number}"
                     if debug:
                         print(f"[DEBUG] Publishing with issue #{issue_number}")
                 if debug:
-                    print(f"[DEBUG] Using just-publish mode for PR merge")
-                print(f"Publishing release {version}...")
+                    print(f"[DEBUG] Using just-push mode for PR merge")
+                print(f"Pushing release {version}...")
                 output_text = run_command(pub_cmd, debug=debug)
                 if output_text:
                     print(output_text)
                 output = f"✅ Release {version} marked as published successfully."
             else:
-                output = handle_publish(base_cmd, version, inputs.event_name, debug)
+                output = handle_push(base_cmd, version, inputs.event_name, debug)
         
         elif command == "generate":
             output = handle_generate(base_cmd, command, version, debug, current_branch)
