@@ -10,7 +10,7 @@ Release Bot automates your release workflow by integrating `release-tool` direct
 2.  **ChatOps**: Interact with the bot via comments on Issues and Pull Requests (e.g., `/release-bot update`).
 3.  **Auto-Pushing**: Automatically push releases when a release PR is merged or a release issue is closed.
 4.  **Smart Pushing**: Uses different release modes based on the trigger:
-    - **PR Merge**: Uses `just-push` mode to mark existing draft releases as published without recreating tags
+    - **PR Merge**: Uses `mark-published` mode to mark existing draft releases as published without recreating tags
     - **Issue Close**: Uses `published` mode for full release creation
     - **Manual**: Respects configuration settings
 
@@ -123,6 +123,7 @@ Interact with the bot by commenting on Issues or Pull Requests created by the wo
 
 *   **`/release-bot update`**: Regenerates the release notes and publishes them (respecting the configured release mode - draft or published). This behaves like the manual workflow trigger, running pull → generate → push. Useful if you've added more PRs/commits and want to update the release.
 *   **`/release-bot publish [version]`**: Publishes the release associated with the current issue. The bot automatically detects the version from the issue if not specified.
+*   **`/release-bot merge [version]`**: Merges the PR, marks the release as published, and closes the issue. Auto-detects version, PR, and issue if not specified. Perfect for finalizing a release in one step.
 *   **`/release-bot generate [version]`**: Only generates release notes without publishing.
 *   **`/release-bot list`**: Lists drafts ready to be published.
 
@@ -153,8 +154,8 @@ When a PR from a release branch is merged:
 1. Bot extracts version from branch name using pattern from config (default: `release/{major}.{minor}`)
    - Fallback: Parse PR title if branch doesn't match pattern
 2. Searches PR body for associated issue references
-3. Runs: `release-tool push 1.2.3 --release-mode just-push --issue <number>`
-4. **Just-Publish Mode**: Only marks the existing draft release as published without:
+3. Runs: `release-tool push 1.2.3 --release-mode mark-published --issue <number>`
+4. **Mark-Published Mode**: Only marks the existing draft release as published without:
    - Recreating git tags
    - Regenerating release notes
    - Modifying any release properties
@@ -175,7 +176,7 @@ When a tracking issue for a release is closed:
 
 - **`draft`**: Creates a draft release (not visible to public)
 - **`published`**: Creates or updates a published release with full tag/notes handling
-- **`just-push`**: Only marks an existing release as published (preserves all properties)
+- **`mark-published`**: Only marks an existing release as published (preserves all properties)
   - ✅ Perfect for PR merge automation
   - ✅ Preserves existing release notes and properties
   - ✅ No git operations performed

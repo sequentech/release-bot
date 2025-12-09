@@ -588,13 +588,48 @@ def handle_push(base_cmd: str, version: str, event_name: str, debug: bool) -> st
 def handle_list(base_cmd: str, debug: bool) -> str:
     """
     Handle list command: show available releases.
-    
+
     Returns:
         Success message
     """
     cmd = f"{base_cmd} publish --list"
     run_command(cmd, debug=debug)
     return "✅ List command completed."
+
+def handle_merge(
+    base_cmd: str,
+    version: Optional[str],
+    issue_number: Optional[int],
+    pr_number: Optional[int],
+    debug: bool
+) -> str:
+    """
+    Handle merge command: merge PR, mark release as published, close issue.
+
+    Args:
+        base_cmd: The base release-tool command
+        version: Optional version (can be partial)
+        issue_number: Optional issue number
+        pr_number: Optional PR number
+        debug: Enable debug output
+
+    Returns:
+        Success message
+    """
+    cmd = f"{base_cmd} merge"
+
+    if version:
+        cmd += f" {version}"
+
+    if issue_number:
+        cmd += f" --issue {issue_number}"
+
+    if pr_number:
+        cmd += f" --pr {pr_number}"
+
+    print(f"Executing merge command...")
+    run_command(cmd, debug=debug)
+    return "✅ Merge completed successfully."
 
 def resolve_version_from_context(
     command: str,
@@ -802,7 +837,12 @@ def main() -> None:
 
         elif command == "list":
              output = handle_list(base_cmd, debug)
-        
+
+        elif command == "merge":
+            # Extract PR number if available from parsed event
+            pr_number = event.get("pull_request", {}).get("number") if event else None
+            output = handle_merge(base_cmd, version, issue_number, pr_number, debug)
+
         else:
             raise Exception(f"Unknown command: {command}")
             
