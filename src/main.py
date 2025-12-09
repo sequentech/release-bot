@@ -578,7 +578,7 @@ def handle_push(base_cmd: str, version: str, event_name: str, debug: bool) -> st
     """
     cmd = f"{base_cmd} push {version}"
     # If auto-pushing closed issue, force published mode
-    # Note: PR merges are handled separately with just-push mode
+    # Note: PR merges are handled separately with mark-published mode
     if event_name == "issues":
             cmd += " --release-mode published"
 
@@ -780,15 +780,15 @@ def main() -> None:
         elif command == "push":
             if not version:
                 raise Exception("Version is required for publish command")
-            # For PR merge events, use just-push mode and associate issue
+            # For PR merge events, use mark-published mode and associate issue
             if inputs.event_name == "pull_request":
-                pub_cmd = f"{base_cmd} push {version} --release-mode just-push"
+                pub_cmd = f"{base_cmd} push {version} --release-mode mark-published"
                 if issue_number:
                     pub_cmd += f" --issue {issue_number}"
                     if debug:
                         print(f"[DEBUG] Publishing with issue #{issue_number}")
                 if debug:
-                    print(f"[DEBUG] Using just-push mode for PR merge")
+                    print(f"[DEBUG] Using mark-published mode for PR merge")
                 print(f"Pushing release {version}...")
                 output_text = run_command(pub_cmd, debug=debug)
                 if output_text:
