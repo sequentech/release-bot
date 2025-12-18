@@ -76,7 +76,16 @@ def run_command(cmd: str, debug: bool = False, capture: bool = True) -> str:
                 print(f"STDERR:\n{result.stderr}")
 
         if result.returncode != 0:
-            raise Exception(result.stderr)
+            # Build a comprehensive error message
+            error_parts = []
+            if result.stderr and result.stderr.strip():
+                error_parts.append(result.stderr.strip())
+            if result.stdout and result.stdout.strip():
+                # Sometimes errors are in stdout
+                error_parts.append(result.stdout.strip())
+
+            error_msg = "\n".join(error_parts) if error_parts else f"Command failed with exit code {result.returncode}"
+            raise Exception(error_msg)
         return result.stdout
     else:
         # Stream output in real-time (better for CI/CD logs)
