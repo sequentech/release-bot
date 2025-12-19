@@ -285,10 +285,10 @@ def post_update_success_comment(
     parts = [f"✅ Release `{version}` updated successfully."]
 
     if release_url:
-        parts.append(f"\n**Release**: {release_url}")
+        parts.append(f"\n[View Release]({release_url})")
 
     if workflow_run_url:
-        parts.append(f"\n<sub>[Workflow run]({workflow_run_url})</sub>")
+        parts.append(f" • [View workflow run]({workflow_run_url})")
 
     body = "".join(parts)
     issue.create_comment(body)
@@ -1215,7 +1215,7 @@ def main() -> None:
             raise Exception(f"Unknown command: {command}")
             
         print(output)
-        if issue_number and inputs.event_name == "issue_comment":
+        if issue_number and inputs.event_name == "issue_comment" and output.strip():
             post_comment(
                 inputs.token,
                 inputs.repo_name,
