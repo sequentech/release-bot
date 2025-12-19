@@ -408,13 +408,20 @@ def parse_event(inputs: BotInputs) -> ParsedEvent:
                     issue_number = int(issue_matches[0])
                     print(f"Found associated issue from PR body: #{issue_number}")
                 
-                # Fallback: Try to extract version from PR title if branch version seems incomplete
+                # Fallback 1: Try to extract version from PR title if branch version seems incomplete
                 # Pattern: "Release v1.2.3" or "Prepare Release 1.2.3-rc.0"
                 if not version or version == "":
                     version_match = re.search(r'v?([0-9]+\.[0-9]+\.[0-9]+(?:-[a-zA-Z0-9.]+)?)', pr_title)
                     if version_match:
                         version = version_match.group(1)
                         print(f"Extracted version from PR title: {version}")
+
+                # Fallback 2: Try to get version from linked issue if still not found
+                if (not version or version == "") and issue_number:
+                    print(f"Version not found in branch or PR title. Trying linked issue #{issue_number}...")
+                    version = get_version_from_issue(repo_name, issue_number, inputs.token)
+                    if version:
+                        print(f"Extracted version from linked issue #{issue_number}: {version}")
             else:
                 print(f"PR merged to '{target_branch}' which does not match release pattern '{pattern}'. Exiting.")
                 sys.exit(0)
@@ -651,6 +658,12 @@ def resolve_version_from_context(
     """
     Resolve version from issue if missing for commands that require it.
 
+    Behavior by event type:
+    - issue_comment (ChatOps): Detect from issue, fail with error + comment if not found
+    - issues (auto-close): Detect from issue, exit gracefully if not found
+    - pull_request (PR merge): Should already have version from branch; this is fallback
+    - workflow_dispatch: Bypassed (command="workflow_dispatch" not in ["push", "update"])
+
     Args:
         command: The command being executed
         version: The version provided (may be None)
@@ -663,21 +676,43 @@ def resolve_version_from_context(
         The resolved version string
 
     Raises:
-        SystemExit: If version cannot be resolved
+        SystemExit: If version cannot be resolved (behavior varies by event type)
     """
     if command in ["push", "update"] and not version:
         if issue_number:
             version = get_version_from_issue(repo_name, issue_number, token)
             if not version:
-                msg = f"❌ Could not find a release version associated with issue #{issue_number}.\nPlease specify version explicitly or ensure the issue title contains the version (e.g., 'Prepare Release 1.2.3')."
-                print(msg)
+                # Different error handling based on event type
                 if event_name == "issue_comment":
+                    # ChatOps: Fail with error message and post comment
+                    msg = f"❌ Could not find a release version associated with issue #{issue_number}.\nPlease specify version explicitly or ensure the issue title contains the version (e.g., 'Prepare Release 1.2.3')."
+                    print(msg)
                     post_comment(token, repo_name, issue_number, msg)
-                sys.exit(1)
+                    sys.exit(1)
+                elif event_name == "issues":
+                    # Auto-close: Exit gracefully without error
+                    print(f"ℹ️ Issue #{issue_number} closed, but no release version found. Skipping release push.")
+                    print("   To trigger a release, ensure the issue title contains a version (e.g., 'Release 1.2.3')")
+                    print("   or the issue is associated with a release in the database.")
+                    sys.exit(0)
+                else:
+                    # Other events: Fail with generic error
+                    msg = f"❌ Could not find a release version associated with issue #{issue_number}."
+                    print(msg)
+                    sys.exit(1)
             print(f"Resolved version {version} from issue #{issue_number}")
         else:
-            print(f"❌ Version is required for {command}.")
-            sys.exit(1)
+            # No issue number available
+            if event_name == "issues":
+                # This shouldn't happen (issues event always has issue_number), but handle gracefully
+                print("ℹ️ Issue closed, but no issue number available. Skipping release push.")
+                sys.exit(0)
+            else:
+                msg = f"❌ Version is required for {command}."
+                print(msg)
+                if event_name == "issue_comment" and issue_number:
+                    post_comment(token, repo_name, issue_number, msg)
+                sys.exit(1)
     return version
 
 def build_base_command(config_path: Optional[str], debug: bool) -> str:
