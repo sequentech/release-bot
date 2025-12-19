@@ -595,13 +595,14 @@ def parse_push_output(output: str) -> dict:
 
     # Extract release URL
     # Patterns: https://github.com/owner/repo/releases/tag/v1.2.3
-    release_url_match = re.search(r'(https://github\.com/[^/\s]+/[^/\s]+/releases/tag/[^\s]+)', output)
+    # Use specific character class for tag names to avoid matching ANSI codes or other special chars
+    release_url_match = re.search(r'(https://github\.com/[^/\s]+/[^/\s]+/releases/tag/[a-zA-Z0-9._/-]+)', output)
     if release_url_match:
         result['release_url'] = release_url_match.group(1)
 
     # Also try pattern for release creation message
     if not result['release_url']:
-        release_url_match = re.search(r'(https://github\.com/[^/\s]+/[^/\s]+/releases/[^\s]+)', output)
+        release_url_match = re.search(r'(https://github\.com/[^/\s]+/[^/\s]+/releases/[a-zA-Z0-9._/-]+)', output)
         if release_url_match:
             result['release_url'] = release_url_match.group(1)
 
