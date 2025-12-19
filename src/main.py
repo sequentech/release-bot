@@ -256,20 +256,55 @@ def post_initial_issue_comment(
     print(f"[post_initial_issue_comment] Posted initial comment to issue #{issue_number}")
 
 
+def post_update_success_comment(
+    token: str,
+    repo_name: str,
+    issue_number: int,
+    version: str,
+    release_url: Optional[str] = None,
+    workflow_run_url: Optional[str] = None
+) -> None:
+    """
+    Post a concise success comment after update/merge commands.
+
+    Args:
+        token: GitHub authentication token
+        repo_name: Repository full name (owner/repo)
+        issue_number: Issue number to comment on
+        version: Release version number
+        release_url: Optional URL to the GitHub release
+        workflow_run_url: Optional URL to the workflow run
+    """
+    from github import Auth
+    auth = Auth.Token(token)
+    g = Github(auth=auth)
+    repo = g.get_repo(repo_name)
+    issue = repo.get_issue(issue_number)
+
+    # Build concise comment
+    parts = [f"✅ Release `{version}` updated successfully."]
+
+    if release_url:
+        parts.append(f"\n**Release**: {release_url}")
+
+    if workflow_run_url:
+        parts.append(f"\n<sub>[Workflow run]({workflow_run_url})</sub>")
+
+    body = "".join(parts)
+    issue.create_comment(body)
+    print(f"[post_update_success_comment] Posted success comment to issue #{issue_number}")
+
+
 def post_initial_comment_after_push(
     token: str,
     repo_name: str,
     version: str,
     push_output: str,
-    workflow_run_url: Optional[str] = None
+    workflow_run_url: Optional[str] = None,
+    post_full_comment: bool = True
 ) -> None:
     """
-    Post initial comment after any push operation (workflow_dispatch, update, or merge).
-
-    This function:
-    1. Parses push output for issue number
-    2. Fetches actual release URL from GitHub API
-    3. Posts initial comment to the issue if found
+    Post comment after push operation.
 
     Args:
         token: GitHub authentication token
@@ -277,15 +312,16 @@ def post_initial_comment_after_push(
         version: Release version number
         push_output: Output from release-tool push command
         workflow_run_url: Optional workflow run URL
+        post_full_comment: If True, post full initial comment with commands. If False, post concise update comment.
     """
-    # Parse output for issue number and release URL
+    # Parse output for issue number
     parsed_info = parse_push_output(push_output or "")
 
     if not parsed_info['issue_number']:
-        print("[post_initial_comment_after_push] No issue number found in push output, skipping initial comment")
+        print("[post_initial_comment_after_push] No issue number found in push output, skipping comment")
         return
 
-    # Get actual release URL from GitHub API (more reliable than parsing)
+    # Get actual release URL from GitHub API
     release_url = get_release_url_from_github(token, repo_name, version)
 
     # Fallback to parsed URL if GitHub API fetch fails
@@ -296,20 +332,31 @@ def post_initial_comment_after_push(
         else:
             print("[post_initial_comment_after_push] Warning: Could not determine release URL")
 
-    # Post the initial comment
     try:
-        print(f"[post_initial_comment_after_push] Posting initial comment to issue #{parsed_info['issue_number']}")
-        post_initial_issue_comment(
-            token=token,
-            repo_name=repo_name,
-            issue_number=parsed_info['issue_number'],
-            version=version,
-            release_url=release_url,
-            workflow_run_url=workflow_run_url
-        )
+        if post_full_comment:
+            # Post full initial comment with all commands (workflow_dispatch creating new issue)
+            print(f"[post_initial_comment_after_push] Posting full initial comment to issue #{parsed_info['issue_number']}")
+            post_initial_issue_comment(
+                token=token,
+                repo_name=repo_name,
+                issue_number=parsed_info['issue_number'],
+                version=version,
+                release_url=release_url,
+                workflow_run_url=workflow_run_url
+            )
+        else:
+            # Post concise success comment (update/merge commands)
+            print(f"[post_initial_comment_after_push] Posting concise update comment to issue #{parsed_info['issue_number']}")
+            post_update_success_comment(
+                token=token,
+                repo_name=repo_name,
+                issue_number=parsed_info['issue_number'],
+                version=version,
+                release_url=release_url,
+                workflow_run_url=workflow_run_url
+            )
     except Exception as e:
-        # Don't fail the entire workflow if comment posting fails
-        print(f"[post_initial_comment_after_push] Warning: Failed to post initial comment: {e}")
+        print(f"[post_initial_comment_after_push] Warning: Failed to post comment: {e}")
 
 
 def get_version_from_issue(repo_name: str, issue_number: int, token: Optional[str] = None) -> Optional[str]:
@@ -720,7 +767,8 @@ def handle_workflow_dispatch(
     debug: bool,
     config_path: Optional[str],
     detect_mode: Optional[str] = None,
-    issue: Optional[int] = None
+    issue: Optional[int] = None,
+    is_update_command: bool = False
 ) -> str:
     """
     Handle workflow_dispatch event: generate and publish release.
@@ -789,22 +837,27 @@ def handle_workflow_dispatch(
     if push_output:
         print(push_output)
 
-    # Post initial comment to issue if it was created or updated
+    # Post comment to issue if it was created or updated
     token = os.environ.get("GITHUB_TOKEN") or os.environ.get("INPUT_GITHUB_TOKEN")
     repo_name = os.environ.get("GITHUB_REPOSITORY")
 
     if token and repo_name:
         workflow_run_url = get_workflow_run_url()
+        # Post full comment for workflow_dispatch, concise for update
         post_initial_comment_after_push(
             token=token,
             repo_name=repo_name,
             version=publish_version,
             push_output=push_output,
-            workflow_run_url=workflow_run_url
+            workflow_run_url=workflow_run_url,
+            post_full_comment=not is_update_command
         )
     else:
-        print("[handle_workflow_dispatch] Warning: Could not post initial comment - missing token or repo name")
+        print("[handle_workflow_dispatch] Warning: Could not post comment - missing token or repo name")
 
+    # Return message only if not update command (to avoid duplicate)
+    if is_update_command:
+        return ""
     return f"✅ Release {publish_version} processed successfully."
 
 def handle_generate(base_cmd: str, command: str, version: Optional[str], debug: bool, current_branch: str) -> str:
@@ -897,8 +950,7 @@ def handle_merge(
     if merge_output:
         print(merge_output)
 
-    # Post initial comment if we have the necessary info
-    # The merge command publishes the release, so we should post the initial comment
+    # Post concise update comment (not full initial comment)
     if version:
         token = os.environ.get("GITHUB_TOKEN") or os.environ.get("INPUT_GITHUB_TOKEN")
         repo_name = os.environ.get("GITHUB_REPOSITORY")
@@ -910,12 +962,13 @@ def handle_merge(
                 repo_name=repo_name,
                 version=version,
                 push_output=merge_output or "",
-                workflow_run_url=workflow_run_url
+                workflow_run_url=workflow_run_url,
+                post_full_comment=False  # Concise comment for merge command
             )
         else:
-            print("[handle_merge] Warning: Could not post initial comment - missing token or repo name")
+            print("[handle_merge] Warning: Could not post update comment - missing token or repo name")
 
-    return "✅ Merge completed successfully."
+    return ""  # Return empty to avoid duplicate success message
 
 def resolve_version_from_context(
     command: str,
@@ -1123,7 +1176,8 @@ def main() -> None:
                 debug,
                 inputs.config_path,
                 detect_mode=inputs.detect_mode,
-                issue=issue_number
+                issue=issue_number,
+                is_update_command=True
             )
 
         elif command == "push":
