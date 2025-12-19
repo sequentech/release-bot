@@ -128,13 +128,87 @@ def post_comment(token: str, repo_name: str, issue_number: int, body: str) -> No
     g = Github(auth=auth)
     repo = g.get_repo(repo_name)
     issue = repo.get_issue(issue_number)
-    
+
     # Add workflow run link if available
     run_url = get_workflow_run_url()
     if run_url:
         body = f"{body}\n\n<sub>[View workflow run details]({run_url})</sub>"
-    
+
     issue.create_comment(body)
+
+
+def post_initial_issue_comment(
+    token: str,
+    repo_name: str,
+    issue_number: int,
+    version: str,
+    release_url: Optional[str] = None,
+    workflow_run_url: Optional[str] = None
+) -> None:
+    """
+    Post an initial informational comment to a newly created release issue.
+
+    This comment provides context about the release, links to resources,
+    and lists all available ChatOps commands.
+
+    Args:
+        token: GitHub authentication token
+        repo_name: Repository full name (owner/repo)
+        issue_number: Issue number to comment on
+        version: Release version number
+        release_url: Optional URL to the GitHub release
+        workflow_run_url: Optional URL to the workflow run
+    """
+    from github import Auth
+    auth = Auth.Token(token)
+    g = Github(auth=auth)
+    repo = g.get_repo(repo_name)
+    issue = repo.get_issue(issue_number)
+
+    # Build the comment body
+    body_parts = [
+        "## 🤖 Release Bot",
+        "",
+        f"This issue tracks the release of version `{version}`.",
+        "",
+        "### Release Information",
+        f"- **Version**: `{version}`"
+    ]
+
+    if release_url:
+        body_parts.append(f"- **GitHub Release**: [View Release]({release_url})")
+
+    if workflow_run_url:
+        body_parts.append(f"- **Workflow Run**: [View Details]({workflow_run_url})")
+
+    body_parts.extend([
+        "",
+        "### Available Commands",
+        "You can interact with this release by commenting with the following commands:",
+        "",
+        "- **`/release-bot update`** - Regenerate release notes and publish (respects config's release mode)",
+        "  - Optionally add parameters: `version=X.Y.Z`, `new_version_type=patch|minor|major|rc`, `force=draft|published`, `debug=true`",
+        "",
+        "- **`/release-bot push [version]`** - Publish the release",
+        "  - Auto-detects version from this issue if not specified",
+        "  - Optionally add: `force=draft|published`",
+        "",
+        "- **`/release-bot generate [version]`** - Generate release notes only (no publish)",
+        "  - Optionally add: `new_version_type=patch|minor|major|rc`",
+        "",
+        "- **`/release-bot list`** - List all draft releases ready to publish",
+        "",
+        "- **`/release-bot merge [version]`** - Merge PR, publish release, and close this issue",
+        "  - Auto-detects version, PR, and issue if not specified",
+        "",
+        "---",
+        "<sub>💡 Tip: All command parameters are optional. The bot will auto-detect information from context when possible.</sub>"
+    ])
+
+    body = "\n".join(body_parts)
+    issue.create_comment(body)
+    print(f"[post_initial_issue_comment] Posted initial comment to issue #{issue_number}")
+
 
 def get_version_from_issue(repo_name: str, issue_number: int, token: Optional[str] = None) -> Optional[str]:
     """Get version from issue by checking database and parsing issue title."""
@@ -479,6 +553,61 @@ def checkout_pr_branch(token: str, repo_name: str, issue_number: int) -> str:
     subprocess.run(["git", "checkout", current_branch], check=True)
     return current_branch
 
+
+def parse_push_output(output: str) -> dict:
+    """
+    Parse the output of 'release-tool push' command to extract useful information.
+
+    Args:
+        output: The stdout from running 'release-tool push'
+
+    Returns:
+        Dictionary with extracted information:
+        - issue_number: Issue number if found
+        - issue_url: Issue URL if found
+        - release_url: GitHub release URL if found
+    """
+    result = {
+        'issue_number': None,
+        'issue_url': None,
+        'release_url': None
+    }
+
+    if not output:
+        return result
+
+    # Extract issue number (various patterns from push.py output)
+    # Patterns: "Created issue #123", "Updated issue #456", "Reusing existing issue #789"
+    issue_match = re.search(r'(?:Created|Updated|Reusing existing)\s+issue\s+#(\d+)', output, re.IGNORECASE)
+    if issue_match:
+        result['issue_number'] = int(issue_match.group(1))
+
+    # Also try pattern: "Issue #123" or "issue #123"
+    if not result['issue_number']:
+        issue_match = re.search(r'\bissue\s+#(\d+)', output, re.IGNORECASE)
+        if issue_match:
+            result['issue_number'] = int(issue_match.group(1))
+
+    # Extract issue URL
+    issue_url_match = re.search(r'(https://github\.com/[^/\s]+/[^/\s]+/issues/\d+)', output)
+    if issue_url_match:
+        result['issue_url'] = issue_url_match.group(1)
+
+    # Extract release URL
+    # Patterns: https://github.com/owner/repo/releases/tag/v1.2.3
+    release_url_match = re.search(r'(https://github\.com/[^/\s]+/[^/\s]+/releases/tag/[^\s]+)', output)
+    if release_url_match:
+        result['release_url'] = release_url_match.group(1)
+
+    # Also try pattern for release creation message
+    if not result['release_url']:
+        release_url_match = re.search(r'(https://github\.com/[^/\s]+/[^/\s]+/releases/[^\s]+)', output)
+        if release_url_match:
+            result['release_url'] = release_url_match.group(1)
+
+    return result
+
+
 def handle_workflow_dispatch(
     base_cmd: str,
     version: Optional[str],
@@ -553,9 +682,36 @@ def handle_workflow_dispatch(
             print(f"[DEBUG] Added --issue {issue} to command")
 
     print(f"Pushing release {publish_version}...")
-    output = run_command(pub_cmd, debug=debug)
-    if output:
-        print(output)
+    push_output = run_command(pub_cmd, debug=debug)
+    if push_output:
+        print(push_output)
+
+    # Parse push output to extract issue and release information
+    parsed_info = parse_push_output(push_output or "")
+
+    # Post initial comment to issue if it was created or updated
+    if parsed_info['issue_number']:
+        try:
+            token = os.environ.get("GITHUB_TOKEN") or os.environ.get("INPUT_GITHUB_TOKEN")
+            repo_name = os.environ.get("GITHUB_REPOSITORY")
+            workflow_run_url = get_workflow_run_url()
+
+            if token and repo_name:
+                print(f"[handle_workflow_dispatch] Posting initial comment to issue #{parsed_info['issue_number']}")
+                post_initial_issue_comment(
+                    token=token,
+                    repo_name=repo_name,
+                    issue_number=parsed_info['issue_number'],
+                    version=publish_version,
+                    release_url=parsed_info['release_url'],
+                    workflow_run_url=workflow_run_url
+                )
+            else:
+                print("[handle_workflow_dispatch] Warning: Could not post initial comment - missing token or repo name")
+        except Exception as e:
+            # Don't fail the entire workflow if comment posting fails
+            print(f"[handle_workflow_dispatch] Warning: Failed to post initial comment: {e}")
+
     return f"✅ Release {publish_version} processed successfully."
 
 def handle_generate(base_cmd: str, command: str, version: Optional[str], debug: bool, current_branch: str) -> str:

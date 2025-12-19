@@ -129,6 +129,45 @@ Interact with the bot by commenting on Issues or Pull Requests created by the wo
 
 **Note**: ChatOps only works if `on.issue_comment` is properly configured in the GitHub Action workflow.
 
+#### Initial Issue Comment
+
+When the Release Bot creates a new tracking issue (via `workflow_dispatch` or manual triggers), it automatically posts an initial comment to the issue containing:
+
+1. **Release Information**: Version number, links to the GitHub release and workflow run
+2. **Available Commands**: Complete list of `/release-bot` commands you can use with parameter options
+3. **Tips**: Helpful reminders about command usage and auto-detection features
+
+This initial comment serves as a convenient reference, eliminating the need to look up command syntax elsewhere. All commands listed in the initial comment match those documented above.
+
+**Example Initial Comment:**
+
+```markdown
+## 🤖 Release Bot
+
+This issue tracks the release of version `1.2.3`.
+
+### Release Information
+- **Version**: `1.2.3`
+- **GitHub Release**: [View Release](https://github.com/owner/repo/releases/tag/v1.2.3)
+- **Workflow Run**: [View Details](https://github.com/owner/repo/actions/runs/123456)
+
+### Available Commands
+You can interact with this release by commenting with the following commands:
+
+- **`/release-bot update`** - Regenerate release notes and publish
+- **`/release-bot push [version]`** - Publish the release
+- **`/release-bot generate [version]`** - Generate release notes only
+- **`/release-bot list`** - List all draft releases
+- **`/release-bot merge [version]`** - Merge PR, publish release, and close issue
+
+💡 Tip: All command parameters are optional. The bot will auto-detect information from context when possible.
+```
+
+**When Initial Comments Are Posted:**
+- ✅ New issues created via `workflow_dispatch`
+- ✅ Issues created during manual release triggers
+- ❌ Issues reused with `--force` (to avoid duplicate comments)
+
 #### Command Behavior Details
 
 - **Version Detection**: If no version is specified, the bot will:
