@@ -137,6 +137,52 @@ def post_comment(token: str, repo_name: str, issue_number: int, body: str) -> No
     issue.create_comment(body)
 
 
+def get_release_url_from_github(token: str, repo_name: str, version: str, tag_prefix: str = "v") -> Optional[str]:
+    """
+    Fetch the actual release URL directly from GitHub API.
+
+    This ensures we get the correct URL even for "untagged" releases
+    where GitHub creates a hash-based tag.
+
+    Args:
+        token: GitHub authentication token
+        repo_name: Repository full name (owner/repo)
+        version: Release version number
+        tag_prefix: Tag prefix (default: "v")
+
+    Returns:
+        Release HTML URL if found, None otherwise
+    """
+    try:
+        from github import Auth, GithubException
+        auth = Auth.Token(token)
+        g = Github(auth=auth)
+        repo = g.get_repo(repo_name)
+
+        tag_name = f"{tag_prefix}{version}"
+
+        # Try to get the release by tag
+        try:
+            release = repo.get_release(tag_name)
+            return release.html_url
+        except GithubException:
+            # Tag might not exist yet, or release might have an "untagged-" name
+            # Search through all releases to find one with matching version in title
+            try:
+                for release in repo.get_releases():
+                    # Check if version appears in the title
+                    if version in release.title or version in release.tag_name:
+                        print(f"[get_release_url_from_github] Found release via search: {release.html_url}")
+                        return release.html_url
+            except Exception as search_error:
+                print(f"[get_release_url_from_github] Error searching releases: {search_error}")
+
+            return None
+    except Exception as e:
+        print(f"[get_release_url_from_github] Error fetching release URL: {e}")
+        return None
+
+
 def post_initial_issue_comment(
     token: str,
     repo_name: str,
@@ -208,6 +254,62 @@ def post_initial_issue_comment(
     body = "\n".join(body_parts)
     issue.create_comment(body)
     print(f"[post_initial_issue_comment] Posted initial comment to issue #{issue_number}")
+
+
+def post_initial_comment_after_push(
+    token: str,
+    repo_name: str,
+    version: str,
+    push_output: str,
+    workflow_run_url: Optional[str] = None
+) -> None:
+    """
+    Post initial comment after any push operation (workflow_dispatch, update, or merge).
+
+    This function:
+    1. Parses push output for issue number
+    2. Fetches actual release URL from GitHub API
+    3. Posts initial comment to the issue if found
+
+    Args:
+        token: GitHub authentication token
+        repo_name: Repository full name (owner/repo)
+        version: Release version number
+        push_output: Output from release-tool push command
+        workflow_run_url: Optional workflow run URL
+    """
+    # Parse output for issue number and release URL
+    parsed_info = parse_push_output(push_output or "")
+
+    if not parsed_info['issue_number']:
+        print("[post_initial_comment_after_push] No issue number found in push output, skipping initial comment")
+        return
+
+    # Get actual release URL from GitHub API (more reliable than parsing)
+    release_url = get_release_url_from_github(token, repo_name, version)
+
+    # Fallback to parsed URL if GitHub API fetch fails
+    if not release_url:
+        release_url = parsed_info['release_url']
+        if release_url:
+            print(f"[post_initial_comment_after_push] Using release URL from output parsing: {release_url}")
+        else:
+            print("[post_initial_comment_after_push] Warning: Could not determine release URL")
+
+    # Post the initial comment
+    try:
+        print(f"[post_initial_comment_after_push] Posting initial comment to issue #{parsed_info['issue_number']}")
+        post_initial_issue_comment(
+            token=token,
+            repo_name=repo_name,
+            issue_number=parsed_info['issue_number'],
+            version=version,
+            release_url=release_url,
+            workflow_run_url=workflow_run_url
+        )
+    except Exception as e:
+        # Don't fail the entire workflow if comment posting fails
+        print(f"[post_initial_comment_after_push] Warning: Failed to post initial comment: {e}")
 
 
 def get_version_from_issue(repo_name: str, issue_number: int, token: Optional[str] = None) -> Optional[str]:
@@ -687,31 +789,21 @@ def handle_workflow_dispatch(
     if push_output:
         print(push_output)
 
-    # Parse push output to extract issue and release information
-    parsed_info = parse_push_output(push_output or "")
-
     # Post initial comment to issue if it was created or updated
-    if parsed_info['issue_number']:
-        try:
-            token = os.environ.get("GITHUB_TOKEN") or os.environ.get("INPUT_GITHUB_TOKEN")
-            repo_name = os.environ.get("GITHUB_REPOSITORY")
-            workflow_run_url = get_workflow_run_url()
+    token = os.environ.get("GITHUB_TOKEN") or os.environ.get("INPUT_GITHUB_TOKEN")
+    repo_name = os.environ.get("GITHUB_REPOSITORY")
 
-            if token and repo_name:
-                print(f"[handle_workflow_dispatch] Posting initial comment to issue #{parsed_info['issue_number']}")
-                post_initial_issue_comment(
-                    token=token,
-                    repo_name=repo_name,
-                    issue_number=parsed_info['issue_number'],
-                    version=publish_version,
-                    release_url=parsed_info['release_url'],
-                    workflow_run_url=workflow_run_url
-                )
-            else:
-                print("[handle_workflow_dispatch] Warning: Could not post initial comment - missing token or repo name")
-        except Exception as e:
-            # Don't fail the entire workflow if comment posting fails
-            print(f"[handle_workflow_dispatch] Warning: Failed to post initial comment: {e}")
+    if token and repo_name:
+        workflow_run_url = get_workflow_run_url()
+        post_initial_comment_after_push(
+            token=token,
+            repo_name=repo_name,
+            version=publish_version,
+            push_output=push_output,
+            workflow_run_url=workflow_run_url
+        )
+    else:
+        print("[handle_workflow_dispatch] Warning: Could not post initial comment - missing token or repo name")
 
     return f"✅ Release {publish_version} processed successfully."
 
@@ -801,7 +893,28 @@ def handle_merge(
         cmd += f" --pr {pr_number}"
 
     print(f"Executing merge command...")
-    run_command(cmd, debug=debug)
+    merge_output = run_command(cmd, debug=debug)
+    if merge_output:
+        print(merge_output)
+
+    # Post initial comment if we have the necessary info
+    # The merge command publishes the release, so we should post the initial comment
+    if version:
+        token = os.environ.get("GITHUB_TOKEN") or os.environ.get("INPUT_GITHUB_TOKEN")
+        repo_name = os.environ.get("GITHUB_REPOSITORY")
+
+        if token and repo_name:
+            workflow_run_url = get_workflow_run_url()
+            post_initial_comment_after_push(
+                token=token,
+                repo_name=repo_name,
+                version=version,
+                push_output=merge_output or "",
+                workflow_run_url=workflow_run_url
+            )
+        else:
+            print("[handle_merge] Warning: Could not post initial comment - missing token or repo name")
+
     return "✅ Merge completed successfully."
 
 def resolve_version_from_context(

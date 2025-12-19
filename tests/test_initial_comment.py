@@ -15,6 +15,8 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 from main import (
     parse_push_output,
     post_initial_issue_comment,
+    get_release_url_from_github,
+    post_initial_comment_after_push,
 )
 
 
@@ -304,3 +306,170 @@ class TestPostInitialIssueComment:
 
         comment_body = mock_issue.create_comment.call_args[0][0]
         assert "`1.2.3-rc.0`" in comment_body
+
+
+class TestGetReleaseUrlFromGithub:
+    """Tests for get_release_url_from_github function."""
+
+    @patch('main.Github')
+    def test_get_release_by_tag_success(self, mock_github_class):
+        """Test successfully getting release URL by tag."""
+        # Setup mocks
+        mock_release = Mock()
+        mock_release.html_url = "https://github.com/owner/repo/releases/tag/v1.2.3"
+        mock_repo = Mock()
+        mock_repo.get_release.return_value = mock_release
+        mock_github = Mock()
+        mock_github.get_repo.return_value = mock_repo
+        mock_github_class.return_value = mock_github
+
+        # Call function
+        result = get_release_url_from_github(
+            token="fake_token",
+            repo_name="owner/repo",
+            version="1.2.3"
+        )
+
+        # Assertions
+        assert result == "https://github.com/owner/repo/releases/tag/v1.2.3"
+        mock_repo.get_release.assert_called_once_with("v1.2.3")
+
+    @patch('main.Github')
+    def test_get_release_by_search_when_tag_fails(self, mock_github_class):
+        """Test finding release by searching when direct tag lookup fails."""
+        from github import GithubException
+
+        # Setup mocks
+        mock_release1 = Mock()
+        mock_release1.html_url = "https://github.com/owner/repo/releases/tag/untagged-abc123"
+        mock_release1.title = "Release 1.2.3"
+        mock_release1.tag_name = "untagged-abc123"
+
+        mock_repo = Mock()
+        # First call (get_release) fails
+        mock_repo.get_release.side_effect = GithubException(404, "Not found")
+        # Second call (get_releases) returns list
+        mock_repo.get_releases.return_value = [mock_release1]
+
+        mock_github = Mock()
+        mock_github.get_repo.return_value = mock_repo
+        mock_github_class.return_value = mock_github
+
+        # Call function
+        result = get_release_url_from_github(
+            token="fake_token",
+            repo_name="owner/repo",
+            version="1.2.3"
+        )
+
+        # Assertions
+        assert result == "https://github.com/owner/repo/releases/tag/untagged-abc123"
+
+    @patch('main.Github')
+    def test_get_release_returns_none_when_not_found(self, mock_github_class):
+        """Test returning None when release not found."""
+        from github import GithubException
+
+        # Setup mocks
+        mock_repo = Mock()
+        mock_repo.get_release.side_effect = GithubException(404, "Not found")
+        mock_repo.get_releases.return_value = []  # No releases
+
+        mock_github = Mock()
+        mock_github.get_repo.return_value = mock_repo
+        mock_github_class.return_value = mock_github
+
+        # Call function
+        result = get_release_url_from_github(
+            token="fake_token",
+            repo_name="owner/repo",
+            version="1.2.3"
+        )
+
+        # Assertions
+        assert result is None
+
+
+class TestPostInitialCommentAfterPush:
+    """Tests for post_initial_comment_after_push helper function."""
+
+    @patch('main.post_initial_issue_comment')
+    @patch('main.get_release_url_from_github')
+    @patch('main.parse_push_output')
+    def test_post_comment_with_github_api_url(self, mock_parse, mock_get_url, mock_post_comment):
+        """Test posting comment using URL from GitHub API."""
+        # Setup mocks
+        mock_parse.return_value = {
+            'issue_number': 123,
+            'issue_url': None,
+            'release_url': None
+        }
+        mock_get_url.return_value = "https://github.com/owner/repo/releases/tag/v1.2.3"
+
+        # Call function
+        post_initial_comment_after_push(
+            token="fake_token",
+            repo_name="owner/repo",
+            version="1.2.3",
+            push_output="Created issue #123",
+            workflow_run_url="https://github.com/owner/repo/actions/runs/123"
+        )
+
+        # Assertions
+        mock_get_url.assert_called_once_with("fake_token", "owner/repo", "1.2.3")
+        mock_post_comment.assert_called_once()
+        call_args = mock_post_comment.call_args[1]
+        assert call_args['issue_number'] == 123
+        assert call_args['release_url'] == "https://github.com/owner/repo/releases/tag/v1.2.3"
+
+    @patch('main.post_initial_issue_comment')
+    @patch('main.get_release_url_from_github')
+    @patch('main.parse_push_output')
+    def test_post_comment_fallback_to_parsed_url(self, mock_parse, mock_get_url, mock_post_comment):
+        """Test falling back to parsed URL when GitHub API fails."""
+        # Setup mocks
+        mock_parse.return_value = {
+            'issue_number': 123,
+            'issue_url': None,
+            'release_url': "https://github.com/owner/repo/releases/tag/untagged-abc"
+        }
+        mock_get_url.return_value = None  # GitHub API fails
+
+        # Call function
+        post_initial_comment_after_push(
+            token="fake_token",
+            repo_name="owner/repo",
+            version="1.2.3",
+            push_output="Created issue #123\nURL: https://github.com/owner/repo/releases/tag/untagged-abc",
+            workflow_run_url=None
+        )
+
+        # Assertions
+        mock_post_comment.assert_called_once()
+        call_args = mock_post_comment.call_args[1]
+        assert call_args['release_url'] == "https://github.com/owner/repo/releases/tag/untagged-abc"
+
+    @patch('main.post_initial_issue_comment')
+    @patch('main.get_release_url_from_github')
+    @patch('main.parse_push_output')
+    def test_no_comment_when_no_issue_number(self, mock_parse, mock_get_url, mock_post_comment):
+        """Test skipping comment when no issue number found."""
+        # Setup mocks
+        mock_parse.return_value = {
+            'issue_number': None,
+            'issue_url': None,
+            'release_url': None
+        }
+
+        # Call function
+        post_initial_comment_after_push(
+            token="fake_token",
+            repo_name="owner/repo",
+            version="1.2.3",
+            push_output="Some output without issue",
+            workflow_run_url=None
+        )
+
+        # Assertions
+        mock_get_url.assert_not_called()
+        mock_post_comment.assert_not_called()

@@ -165,8 +165,13 @@ You can interact with this release by commenting with the following commands:
 
 **When Initial Comments Are Posted:**
 - ✅ New issues created via `workflow_dispatch`
+- ✅ Issues created/updated via `/release-bot update` command
+- ✅ Issues created/updated via `/release-bot merge` command
 - ✅ Issues created during manual release triggers
-- ❌ Issues reused with `--force` (to avoid duplicate comments)
+- ❌ Issues reused with `--force` may not get new comment (if issue number not in output)
+
+**Release URL Accuracy:**
+The bot fetches the actual release URL directly from GitHub's API to ensure accuracy, even for "untagged" releases where GitHub creates hash-based tags (e.g., `untagged-c646978674c90c99ae21`). If the API fetch fails, it falls back to parsing the command output.
 
 #### Command Behavior Details
 
