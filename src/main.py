@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from typing import Optional, Dict, Any, Tuple
 from github import Github
 from release_tool.db import Database
-from release_tool.config import load_config
+from release_tool.config import load_config, ForceMode, DetectMode, VersionBumpType
 from release_tool.commands.push import _find_draft_releases
 
 
@@ -821,7 +821,7 @@ def handle_workflow_dispatch(
     pub_cmd = f"{base_cmd} push {publish_version}"
     if debug:
         print(f"[DEBUG] Checking force parameter: force='{force}', condition result: {force and force.lower() != 'none'}")
-    if force and force.lower() != "none":
+    if force and force.lower() != ForceMode.NONE.value:
         pub_cmd += f" --force {force}"
         if debug:
             print(f"[DEBUG] Added --force {force} to command")
@@ -1162,7 +1162,7 @@ def main() -> None:
         elif command == "update":
             # Update behaves like workflow_dispatch: generate + publish
             # For update, force should default to "draft" if not explicitly set
-            force_mode = inputs.force if (inputs.force and inputs.force.lower() != "none") else "draft"
+            force_mode = inputs.force if (inputs.force and inputs.force.lower() != ForceMode.NONE.value) else ForceMode.DRAFT.value
             if debug:
                 print(f"[DEBUG] Update command: inputs.force='{inputs.force}', force_mode='{force_mode}'")
                 if issue_number:
