@@ -14,8 +14,8 @@ packages = [{include = "src"}]
 [tool.poetry.dependencies]
 python = "^3.10"
 PyGithub = "^2.1.1"
-# Use local development version of release-tool
-release-tool = {path = "../release-tool", develop = true}
+# release-tool is already installed in the base Docker image
+# For local development, install it separately: pip install -e ../release-tool
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.4"
