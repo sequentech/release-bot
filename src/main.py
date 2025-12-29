@@ -183,12 +183,64 @@ def get_release_url_from_github(token: str, repo_name: str, version: str, tag_pr
         return None
 
 
+def get_pr_url_for_issue(
+    token: str,
+    repo_name: str,
+    issue_number: int,
+    version: Optional[str] = None,
+    db_path: Optional[str] = None
+) -> Optional[str]:
+    """
+    Find PR URL associated with an issue using best-effort from database.
+
+    Args:
+        token: GitHub authentication token
+        repo_name: Repository full name (owner/repo)
+        issue_number: Issue number to search for
+        version: Optional version to filter by
+        db_path: Optional path to database file
+
+    Returns:
+        PR URL if found, None otherwise
+    """
+    try:
+        # Connect to database
+        db = Database(db_path or "release_tool.db")
+        db.connect()
+
+        # Find PRs associated with this issue
+        prs = db.find_prs_for_issue(repo_name, issue_number, limit=5)
+
+        db.close()
+
+        if not prs:
+            print(f"[get_pr_url_for_issue] No PRs found for issue #{issue_number}")
+            return None
+
+        # Prefer merged PRs, then open PRs
+        merged_prs = [pr for pr in prs if pr.get('merged_at')]
+        if merged_prs:
+            pr_url = merged_prs[0].get('url')
+            print(f"[get_pr_url_for_issue] Found merged PR: {pr_url}")
+            return pr_url
+
+        # Fallback to first PR found
+        pr_url = prs[0].get('url')
+        print(f"[get_pr_url_for_issue] Found PR: {pr_url}")
+        return pr_url
+
+    except Exception as e:
+        print(f"[get_pr_url_for_issue] Error finding PR: {e}")
+        return None
+
+
 def post_initial_issue_comment(
     token: str,
     repo_name: str,
     issue_number: int,
     version: str,
     release_url: Optional[str] = None,
+    pr_url: Optional[str] = None,
     workflow_run_url: Optional[str] = None
 ) -> None:
     """
@@ -203,6 +255,7 @@ def post_initial_issue_comment(
         issue_number: Issue number to comment on
         version: Release version number
         release_url: Optional URL to the GitHub release
+        pr_url: Optional URL to the pull request
         workflow_run_url: Optional URL to the workflow run
     """
     from github import Auth
@@ -223,6 +276,9 @@ def post_initial_issue_comment(
 
     if release_url:
         body_parts.append(f"- **GitHub Release**: [View Release]({release_url})")
+
+    if pr_url:
+        body_parts.append(f"- **Pull Request**: [View PR]({pr_url})")
 
     if workflow_run_url:
         body_parts.append(f"- **Workflow Run**: [View Details]({workflow_run_url})")
@@ -247,6 +303,11 @@ def post_initial_issue_comment(
         "- **`/release-bot merge [version]`** - Merge PR, publish release, and close this issue",
         "  - Auto-detects version, PR, and issue if not specified",
         "",
+        "- **`/release-bot cancel [version]`** - Cancel the release and clean up all resources",
+        "  - Auto-detects version from this issue if not specified",
+        "  - Closes PR, deletes branch, deletes release/tag, closes this issue",
+        "  - Optionally add: `force=true` to cancel published releases",
+        "",
         "---",
         "<sub>💡 Tip: All command parameters are optional. The bot will auto-detect information from context when possible.</sub>"
     ])
@@ -262,6 +323,7 @@ def post_update_success_comment(
     issue_number: int,
     version: str,
     release_url: Optional[str] = None,
+    pr_url: Optional[str] = None,
     workflow_run_url: Optional[str] = None
 ) -> None:
     """
@@ -273,6 +335,7 @@ def post_update_success_comment(
         issue_number: Issue number to comment on
         version: Release version number
         release_url: Optional URL to the GitHub release
+        pr_url: Optional URL to the pull request
         workflow_run_url: Optional URL to the workflow run
     """
     from github import Auth
@@ -284,11 +347,16 @@ def post_update_success_comment(
     # Build concise comment
     parts = [f"✅ Release `{version}` updated successfully."]
 
+    links = []
     if release_url:
-        parts.append(f"\n[View Release]({release_url})")
-
+        links.append(f"[View Release]({release_url})")
+    if pr_url:
+        links.append(f"[View PR]({pr_url})")
     if workflow_run_url:
-        parts.append(f" • [View workflow run]({workflow_run_url})")
+        links.append(f"[View workflow run]({workflow_run_url})")
+
+    if links:
+        parts.append("\n" + " • ".join(links))
 
     body = "".join(parts)
     issue.create_comment(body)
@@ -332,6 +400,14 @@ def post_initial_comment_after_push(
         else:
             print("[post_initial_comment_after_push] Warning: Could not determine release URL")
 
+    # Get PR URL from database (best-effort)
+    pr_url = get_pr_url_for_issue(
+        token=token,
+        repo_name=repo_name,
+        issue_number=parsed_info['issue_number'],
+        version=version
+    )
+
     try:
         if post_full_comment:
             # Post full initial comment with all commands (workflow_dispatch creating new issue)
@@ -342,6 +418,7 @@ def post_initial_comment_after_push(
                 issue_number=parsed_info['issue_number'],
                 version=version,
                 release_url=release_url,
+                pr_url=pr_url,
                 workflow_run_url=workflow_run_url
             )
         else:
@@ -353,6 +430,7 @@ def post_initial_comment_after_push(
                 issue_number=parsed_info['issue_number'],
                 version=version,
                 release_url=release_url,
+                pr_url=pr_url,
                 workflow_run_url=workflow_run_url
             )
     except Exception as e:
@@ -970,6 +1048,54 @@ def handle_merge(
 
     return ""  # Return empty to avoid duplicate success message
 
+
+def handle_cancel(
+    base_cmd: str,
+    version: Optional[str],
+    issue_number: Optional[int],
+    pr_number: Optional[int],
+    force: bool,
+    debug: bool
+) -> str:
+    """
+    Handle cancel command: close PR, delete branch, delete release/tag, close issue.
+
+    Args:
+        base_cmd: The base release-tool command
+        version: Optional version
+        issue_number: Optional issue number
+        pr_number: Optional PR number
+        force: Allow canceling published releases
+        debug: Enable debug output
+
+    Returns:
+        Success message
+    """
+    cmd = f"{base_cmd} cancel"
+
+    if version:
+        cmd += f" {version}"
+
+    if issue_number:
+        cmd += f" --issue {issue_number}"
+
+    if pr_number:
+        cmd += f" --pr {pr_number}"
+
+    if force:
+        cmd += " --force"
+
+    # Always add --auto for non-interactive execution
+    cmd += " --auto"
+
+    print(f"Executing cancel command...")
+    cancel_output = run_command(cmd, debug=debug)
+    if cancel_output:
+        print(cancel_output)
+
+    return ""  # Return empty to avoid duplicate success message
+
+
 def resolve_version_from_context(
     command: str,
     version: Optional[str],
@@ -1210,6 +1336,17 @@ def main() -> None:
             # Extract PR number if available from parsed event
             pr_number = event.get("pull_request", {}).get("number") if event else None
             output = handle_merge(base_cmd, version, issue_number, pr_number, debug)
+
+        elif command == "cancel":
+            # Extract PR number if available from parsed event
+            pr_number = event.get("pull_request", {}).get("number") if event else None
+            # Check for force parameter
+            force = False
+            if inputs.event_name == "issue_comment":
+                # Parse force from comment parameters
+                comment_body = event.get("comment", {}).get("body", "")
+                force = "force=true" in comment_body.lower()
+            output = handle_cancel(base_cmd, version, issue_number, pr_number, force, debug)
 
         else:
             raise Exception(f"Unknown command: {command}")

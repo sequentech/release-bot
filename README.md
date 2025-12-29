@@ -124,6 +124,15 @@ Interact with the bot by commenting on Issues or Pull Requests created by the wo
 *   **`/release-bot update`**: Regenerates the release notes and publishes them (respecting the configured release mode - draft or published). This behaves like the manual workflow trigger, running pull → generate → push. Useful if you've added more PRs/commits and want to update the release.
 *   **`/release-bot publish [version]`**: Publishes the release associated with the current issue. The bot automatically detects the version from the issue if not specified.
 *   **`/release-bot merge [version]`**: Merges the PR, marks the release as published, and closes the issue. Auto-detects version, PR, and issue if not specified. Perfect for finalizing a release in one step.
+*   **`/release-bot cancel [version]`**: Cancels the release and cleans up all resources. Auto-detects version from issue if not specified. This command will:
+    - Close the associated PR (if exists and not merged)
+    - Delete the PR branch (if exists)
+    - Delete the GitHub release
+    - Delete the git tag
+    - Delete database records
+    - Close the tracking issue
+    - **Safety**: By default, cannot cancel published releases. Use `force=true` parameter to override.
+    - **Example**: `/release-bot cancel` or `/release-bot cancel force=true`
 *   **`/release-bot generate [version]`**: Only generates release notes without publishing.
 *   **`/release-bot list`**: Lists drafts ready to be published.
 
@@ -133,7 +142,7 @@ Interact with the bot by commenting on Issues or Pull Requests created by the wo
 
 When the Release Bot creates a new tracking issue (via `workflow_dispatch` or manual triggers), it automatically posts an initial comment to the issue containing:
 
-1. **Release Information**: Version number, links to the GitHub release and workflow run
+1. **Release Information**: Version number, links to the GitHub release, pull request (if found), and workflow run
 2. **Available Commands**: Complete list of `/release-bot` commands you can use with parameter options
 3. **Tips**: Helpful reminders about command usage and auto-detection features
 
@@ -149,6 +158,7 @@ This issue tracks the release of version `1.2.3`.
 ### Release Information
 - **Version**: `1.2.3`
 - **GitHub Release**: [View Release](https://github.com/owner/repo/releases/tag/v1.2.3)
+- **Pull Request**: [View PR](https://github.com/owner/repo/pull/42)
 - **Workflow Run**: [View Details](https://github.com/owner/repo/actions/runs/123456)
 
 ### Available Commands
@@ -159,6 +169,7 @@ You can interact with this release by commenting with the following commands:
 - **`/release-bot generate [version]`** - Generate release notes only
 - **`/release-bot list`** - List all draft releases
 - **`/release-bot merge [version]`** - Merge PR, publish release, and close issue
+- **`/release-bot cancel [version]`** - Cancel the release and clean up all resources
 
 💡 Tip: All command parameters are optional. The bot will auto-detect information from context when possible.
 ```
