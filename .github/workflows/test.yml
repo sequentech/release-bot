@@ -65,7 +65,7 @@ jobs:
 
     - name: Install release-tool into release-bot venv
       working-directory: release-bot
-      run: poetry run pip install ../release-tool/dist/*.whl
+      run: poetry run pip install --force-reinstall --no-deps ../release-tool/dist/*.whl
 
     - name: Run tests
       working-directory: release-bot
