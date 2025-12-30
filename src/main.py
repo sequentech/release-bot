@@ -11,6 +11,8 @@ from github import Github
 from release_tool.db import Database
 from release_tool.config import load_config, ForceMode, DetectMode, VersionBumpType
 from release_tool.commands.push import _find_draft_releases
+from release_tool.policies import IssueExtractor
+from release_tool.models import PullRequest
 
 
 @dataclass
@@ -191,7 +193,9 @@ def get_pr_url_for_issue(
     db_path: Optional[str] = None
 ) -> Optional[str]:
     """
-    Find PR URL associated with an issue using best-effort from database.
+    Find PR URL associated with an issue using pattern matching from issue_policy.patterns.
+
+    Uses IssueExtractor to match PRs against configured patterns (branch name, PR body, PR title).
 
     Args:
         token: GitHub authentication token
@@ -204,28 +208,70 @@ def get_pr_url_for_issue(
         PR URL if found, None otherwise
     """
     try:
+        # Load config to get issue_policy.patterns
+        config = load_config(None)
+
         # Connect to database
         db = Database(db_path or "release_tool.db")
         db.connect()
 
-        # Find PRs associated with this issue
-        prs = db.find_prs_for_issue(repo_name, issue_number, limit=5)
+        # Get repository
+        repo = db.get_repository(repo_name)
+        if not repo:
+            print(f"[get_pr_url_for_issue] Repository {repo_name} not found in database")
+            db.close()
+            return None
+
+        repo_id = repo.id
+
+        # Create issue extractor with configured patterns
+        extractor = IssueExtractor(config, debug=False)
+
+        # Get all open PRs (use issue_number=0 to get all, not filter by issue)
+        all_prs = db.find_prs_for_issue(repo_name, issue_number=0, limit=100)
+
+        print(f"[get_pr_url_for_issue] Searching {len(all_prs)} PRs for issue #{issue_number}")
+
+        # Check each PR using pattern matching
+        matching_prs = []
+        for pr_dict in all_prs:
+            # Convert dict to PullRequest object for extractor
+            pr_obj = PullRequest(
+                repo_id=repo_id,
+                number=pr_dict.get('number'),
+                title=pr_dict.get('title', ''),
+                body=pr_dict.get('body', ''),
+                state=pr_dict.get('state', 'open'),
+                url=pr_dict.get('url', ''),
+                head_branch=pr_dict.get('head_branch', ''),
+                base_branch='',  # Not needed for extraction
+                merged_at=pr_dict.get('merged_at')
+            )
+
+            # Extract issue numbers using configured patterns
+            extracted_issues = extractor.extract_from_pr(pr_obj)
+
+            # Check if target issue is in extracted issues
+            target_str = str(issue_number)
+            if target_str in extracted_issues:
+                matching_prs.append(pr_dict)
+                print(f"[get_pr_url_for_issue] Pattern match: PR #{pr_obj.number} -> issue #{issue_number}")
 
         db.close()
 
-        if not prs:
+        if not matching_prs:
             print(f"[get_pr_url_for_issue] No PRs found for issue #{issue_number}")
             return None
 
         # Prefer merged PRs, then open PRs
-        merged_prs = [pr for pr in prs if pr.get('merged_at')]
+        merged_prs = [pr for pr in matching_prs if pr.get('merged_at')]
         if merged_prs:
             pr_url = merged_prs[0].get('url')
             print(f"[get_pr_url_for_issue] Found merged PR: {pr_url}")
             return pr_url
 
         # Fallback to first PR found
-        pr_url = prs[0].get('url')
+        pr_url = matching_prs[0].get('url')
         print(f"[get_pr_url_for_issue] Found PR: {pr_url}")
         return pr_url
 
