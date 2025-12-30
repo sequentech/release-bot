@@ -409,6 +409,72 @@ def post_update_success_comment(
     print(f"[post_update_success_comment] Posted success comment to issue #{issue_number}")
 
 
+def post_cancel_success_comment(
+    token: str,
+    repo_name: str,
+    issue_number: int,
+    version: Optional[str],
+    pr_url: Optional[str] = None,
+    workflow_run_url: Optional[str] = None
+) -> None:
+    """
+    Post a success comment after cancel command.
+
+    Shows only the information that is available - gracefully handles missing data.
+
+    Args:
+        token: GitHub authentication token
+        repo_name: Repository full name (owner/repo)
+        issue_number: Issue number to comment on
+        version: Release version number (may be None if not provided)
+        pr_url: Optional URL to the closed pull request
+        workflow_run_url: Optional URL to the workflow run
+    """
+    from github import Auth
+    auth = Auth.Token(token)
+    g = Github(auth=auth)
+    repo = g.get_repo(repo_name)
+    issue = repo.get_issue(issue_number)
+
+    # Build concise comment
+    if version:
+        parts = [f"🗑️ Release `{version}` cancelled successfully."]
+    else:
+        parts = ["🗑️ Release cancelled successfully."]
+
+    # Build details based on what was actually available
+    details = []
+
+    if pr_url:
+        details.append("✓ Closed pull request and deleted branch")
+
+    if version:
+        details.append(f"✓ Deleted GitHub release for tag `v{version}`")
+        details.append(f"✓ Deleted git tag `v{version}`")
+        details.append("✓ Deleted database records")
+
+    details.append("✓ Closed this issue")
+
+    if details:
+        parts.append("\n\n**Actions completed:**")
+        for detail in details:
+            parts.append(f"\n- {detail}")
+
+    # Build links section
+    links = []
+    if pr_url:
+        links.append(f"[View closed PR]({pr_url})")
+    if workflow_run_url:
+        links.append(f"[View workflow run]({workflow_run_url})")
+
+    if links:
+        parts.append("\n\n" + " • ".join(links))
+
+    body = "".join(parts)
+    issue.create_comment(body)
+    print(f"[post_cancel_success_comment] Posted success comment to issue #{issue_number}")
+
+
 def post_initial_comment_after_push(
     token: str,
     repo_name: str,
@@ -1101,7 +1167,10 @@ def handle_cancel(
     issue_number: Optional[int],
     pr_number: Optional[int],
     force: bool,
-    debug: bool
+    debug: bool,
+    token: Optional[str] = None,
+    repo_name: Optional[str] = None,
+    workflow_run_url: Optional[str] = None
 ) -> str:
     """
     Handle cancel command: close PR, delete branch, delete release/tag, close issue.
@@ -1113,6 +1182,9 @@ def handle_cancel(
         pr_number: Optional PR number
         force: Allow canceling published releases
         debug: Enable debug output
+        token: GitHub token (for posting success comment)
+        repo_name: Repository name (for posting success comment)
+        workflow_run_url: Workflow run URL (for posting in success comment)
 
     Returns:
         Success message
@@ -1137,7 +1209,36 @@ def handle_cancel(
     if cancel_output:
         print(cancel_output)
 
-    return ""  # Return empty to avoid duplicate success message
+    # Post success comment if we have at least issue_number and token
+    # Show whatever info is available, gracefully handle missing data
+    if issue_number and token:
+        # Get PR URL using pattern matching (best-effort)
+        pr_url = None
+        try:
+            if repo_name:
+                pr_url = get_pr_url_for_issue(
+                    token=token,
+                    repo_name=repo_name,
+                    issue_number=issue_number,
+                    version=version
+                )
+        except Exception as e:
+            print(f"[handle_cancel] Could not get PR URL: {e}")
+
+        # Post the success comment
+        try:
+            post_cancel_success_comment(
+                token=token,
+                repo_name=repo_name,
+                issue_number=issue_number,
+                version=version,
+                pr_url=pr_url,
+                workflow_run_url=workflow_run_url
+            )
+        except Exception as e:
+            print(f"[handle_cancel] Warning: Could not post success comment: {e}")
+
+    return ""  # Return empty to avoid duplicate success message in main()
 
 
 def resolve_version_from_context(
@@ -1390,7 +1491,25 @@ def main() -> None:
                 # Parse force from comment parameters
                 comment_body = event.get("comment", {}).get("body", "")
                 force = "force=true" in comment_body.lower()
-            output = handle_cancel(base_cmd, version, issue_number, pr_number, force, debug)
+
+            # Build workflow run URL
+            workflow_run_url = None
+            github_server_url = os.getenv("GITHUB_SERVER_URL", "https://github.com")
+            github_run_id = os.getenv("GITHUB_RUN_ID")
+            if github_run_id:
+                workflow_run_url = f"{github_server_url}/{inputs.repo_name}/actions/runs/{github_run_id}"
+
+            output = handle_cancel(
+                base_cmd,
+                version,
+                issue_number,
+                pr_number,
+                force,
+                debug,
+                token=inputs.token,
+                repo_name=inputs.repo_name,
+                workflow_run_url=workflow_run_url
+            )
 
         else:
             raise Exception(f"Unknown command: {command}")
