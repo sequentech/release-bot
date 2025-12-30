@@ -16,6 +16,8 @@ sys.modules['release_tool.db'] = MagicMock()
 sys.modules['release_tool.config'] = MagicMock()
 sys.modules['release_tool.commands'] = MagicMock()
 sys.modules['release_tool.commands.push'] = MagicMock()
+sys.modules['release_tool.policies'] = MagicMock()
+sys.modules['release_tool.models'] = MagicMock()
 
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))

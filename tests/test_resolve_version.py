@@ -6,8 +6,17 @@
 
 import pytest
 import sys
-from unittest.mock import patch, Mock
+from unittest.mock import patch, Mock, MagicMock
 from pathlib import Path
+
+# Mock the imports that don't exist before importing main
+sys.modules['release_tool'] = MagicMock()
+sys.modules['release_tool.db'] = MagicMock()
+sys.modules['release_tool.config'] = MagicMock()
+sys.modules['release_tool.commands'] = MagicMock()
+sys.modules['release_tool.commands.push'] = MagicMock()
+sys.modules['release_tool.policies'] = MagicMock()
+sys.modules['release_tool.models'] = MagicMock()
 
 # Add parent directory to path to import main module
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
