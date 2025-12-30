@@ -1071,7 +1071,8 @@ def handle_cancel(
     Returns:
         Success message
     """
-    cmd = f"{base_cmd} cancel"
+    # Insert --auto before the command name for non-interactive execution
+    cmd = f"{base_cmd} --auto cancel"
 
     if version:
         cmd += f" {version}"
@@ -1084,9 +1085,6 @@ def handle_cancel(
 
     if force:
         cmd += " --force"
-
-    # Always add --auto for non-interactive execution
-    cmd += " --auto"
 
     print(f"Executing cancel command...")
     cancel_output = run_command(cmd, debug=debug)
