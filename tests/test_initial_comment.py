@@ -171,10 +171,8 @@ class TestPostInitialIssueComment:
         assert "https://github.com/owner/repo/releases/tag/v1.2.3" in comment_body
         assert "https://github.com/owner/repo/actions/runs/123456" in comment_body
         assert "/release-bot update" in comment_body
-        assert "/release-bot push" in comment_body
-        assert "/release-bot generate" in comment_body
-        assert "/release-bot list" in comment_body
         assert "/release-bot merge" in comment_body
+        assert "/release-bot cancel" in comment_body
 
     @patch('main.Github')
     def test_post_comment_without_release_url(self, mock_github_class):
@@ -282,17 +280,13 @@ class TestPostInitialIssueComment:
 
         # Verify all commands are listed
         assert "/release-bot update" in comment_body
-        assert "/release-bot push" in comment_body
-        assert "/release-bot generate" in comment_body
-        assert "/release-bot list" in comment_body
         assert "/release-bot merge" in comment_body
+        assert "/release-bot cancel" in comment_body
 
         # Verify command descriptions
         assert "Regenerate release notes and publish" in comment_body
-        assert "Publish the release" in comment_body
-        assert "Generate release notes only" in comment_body
-        assert "List all draft releases" in comment_body
         assert "Merge PR, publish release, and close this issue" in comment_body
+        assert "Cancel the release and clean up all resources" in comment_body
 
     @patch('main.Github')
     def test_comment_with_rc_version(self, mock_github_class):
