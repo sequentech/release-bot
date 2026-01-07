@@ -608,7 +608,13 @@ def get_version_from_drafts(config_path: Optional[str]) -> Optional[str]:
             first_file = draft_files[0]
             filename = first_file.stem
             version_str = filename
-            if filename.endswith("-doc"):
+            # Strip known suffixes from draft filenames
+            # Order matters: check longer/more specific patterns first
+            import re
+            code_suffix_match = re.search(r'-code-\d+$', version_str)
+            if code_suffix_match:
+                version_str = version_str[:code_suffix_match.start()]
+            elif filename.endswith("-doc"):
                 version_str = filename[:-4]
             elif filename.endswith("-release"):
                 version_str = filename[:-8]
