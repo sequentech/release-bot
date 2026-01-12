@@ -1357,6 +1357,230 @@ def run_pull(
             post_comment(token, repo_name, issue_number, msg)
         sys.exit(1)
 
+
+def write_job_summary(
+    inputs: BotInputs,
+    command: str,
+    version: Optional[str],
+    issue_number: Optional[int],
+    event: Dict[str, Any],
+    success: bool,
+    output: str = "",
+    error: str = "",
+) -> None:
+    """
+    Write a comprehensive job summary to GitHub Actions step summary.
+    
+    This generates a markdown summary that appears in the GitHub Actions UI,
+    providing visibility into what the release bot did.
+    
+    Args:
+        inputs: Bot input parameters
+        command: The command that was executed
+        version: The version being processed (if any)
+        issue_number: The issue/PR number (if any)
+        event: The parsed GitHub event data
+        success: Whether the command succeeded
+        output: Command output (if successful)
+        error: Error message (if failed)
+    """
+    summary_path = os.getenv("GITHUB_STEP_SUMMARY")
+    if not summary_path:
+        print("[DEBUG] GITHUB_STEP_SUMMARY not set, skipping job summary")
+        return
+    
+    try:
+        lines = []
+        
+        # Header
+        lines.append("# 📦 Release Bot Summary")
+        lines.append("")
+        
+        # Workflow metadata
+        lines.append("## 🔧 Workflow Information")
+        lines.append("")
+        lines.append("| Property | Value |")
+        lines.append("|----------|-------|")
+        
+        run_id = os.getenv("GITHUB_RUN_ID", "")
+        server_url = os.getenv("GITHUB_SERVER_URL", "https://github.com")
+        repo = inputs.repo_name
+        actor = os.getenv("GITHUB_ACTOR", "unknown")
+        ref_name = os.getenv("GITHUB_REF_NAME", "")
+        sha = os.getenv("GITHUB_SHA", "")
+        sha_short = sha[:7] if sha else ""
+        
+        if run_id:
+            lines.append(f"| **Run ID** | [`{run_id}`]({server_url}/{repo}/actions/runs/{run_id}) |")
+        lines.append(f"| **Triggered By** | @{actor} |")
+        lines.append(f"| **Event** | `{inputs.event_name}` |")
+        lines.append(f"| **Repository** | [{repo}]({server_url}/{repo}) |")
+        if ref_name:
+            lines.append(f"| **Ref** | `{ref_name}` |")
+        if sha_short:
+            lines.append(f"| **Commit** | [`{sha_short}`]({server_url}/{repo}/commit/{sha}) |")
+        lines.append("")
+        
+        # Determine mode and description
+        mode = "Unknown"
+        mode_icon = "❓"
+        mode_desc = ""
+        
+        if command == "workflow_dispatch":
+            version_type = inputs.new_version_type or "auto"
+            if version:
+                mode = f"Draft Mode ({version_type} bump)"
+                mode_desc = f"Creating/updating release draft for version {version}"
+            else:
+                mode = f"Draft Mode ({version_type} bump)"
+                mode_desc = f"Creating/updating release draft with {version_type} version bump"
+            mode_icon = "📋"
+        elif command == "merge":
+            mode = "Merge Command"
+            mode_icon = "🔀"
+            mode_desc = "Processing merge command - will merge PR, publish release, and trigger pipeline"
+        elif command == "update":
+            mode = "Update Command"
+            mode_icon = "🔄"
+            mode_desc = "Regenerating and publishing release notes"
+        elif command == "push":
+            mode = "Publish Command"
+            mode_icon = "📢"
+            mode_desc = "Publishing a specific version"
+        elif command == "generate":
+            mode = "Generate Command"
+            mode_icon = "📝"
+            mode_desc = "Generating release notes without pushing"
+        elif command == "list":
+            mode = "List Command"
+            mode_icon = "📋"
+            mode_desc = "Listing available draft releases"
+        elif command == "cancel":
+            mode = "Cancel Command"
+            mode_icon = "🚫"
+            mode_desc = "Cancelling a release draft"
+        else:
+            mode = f"Command: {command}"
+            mode_icon = "💬"
+            mode_desc = f"Processing {command} command"
+        
+        lines.append(f"## {mode_icon} Workflow Mode: {mode}")
+        lines.append("")
+        lines.append(f"> {mode_desc}")
+        lines.append("")
+        
+        # Input parameters (if workflow_dispatch)
+        if inputs.event_name == "workflow_dispatch":
+            lines.append("## 📥 Input Parameters")
+            lines.append("")
+            lines.append("| Parameter | Value |")
+            lines.append("|-----------|-------|")
+            lines.append(f"| **Version Type** | `{inputs.new_version_type or 'none'}` |")
+            lines.append(f"| **Version** | `{inputs.version or '(auto-detect)'}` |")
+            lines.append(f"| **From Version** | `{inputs.from_version or '(latest)'}` |")
+            lines.append(f"| **Force** | `{inputs.force or 'none'}` |")
+            if inputs.detect_mode:
+                lines.append(f"| **Detect Mode** | `{inputs.detect_mode}` |")
+            lines.append("")
+        
+        # ChatOps context (if issue_comment)
+        if inputs.event_name == "issue_comment" and event:
+            issue = event.get("issue", {})
+            comment = event.get("comment", {})
+            lines.append("## 💬 ChatOps Context")
+            lines.append("")
+            lines.append("| Property | Value |")
+            lines.append("|----------|-------|")
+            issue_num = issue.get("number", issue_number)
+            issue_url = issue.get("html_url", f"{server_url}/{repo}/issues/{issue_num}")
+            lines.append(f"| **Issue/PR** | [#{issue_num}]({issue_url}) |")
+            lines.append(f"| **Title** | {issue.get('title', 'N/A')} |")
+            comment_user = comment.get("user", {}).get("login", "unknown")
+            lines.append(f"| **Comment By** | @{comment_user} |")
+            comment_body = comment.get("body", "")
+            # Escape markdown in comment body
+            comment_body_escaped = comment_body.replace("|", "\\|").replace("\n", " ")
+            if len(comment_body_escaped) > 60:
+                comment_body_escaped = comment_body_escaped[:57] + "..."
+            lines.append(f"| **Command** | `{comment_body_escaped}` |")
+            lines.append("")
+        
+        # Execution result
+        lines.append("## 🤖 Execution Result")
+        lines.append("")
+        
+        if success:
+            lines.append("✅ **Command completed successfully**")
+            lines.append("")
+            
+            if version:
+                lines.append("| Property | Value |")
+                lines.append("|----------|-------|")
+                lines.append(f"| **Version** | `{version}` |")
+                lines.append(f"| **Tag** | `v{version}` |")
+                lines.append(f"| **Release URL** | [{repo}/releases/tag/v{version}]({server_url}/{repo}/releases/tag/v{version}) |")
+                lines.append("")
+            
+            # Include sanitized output if not too long
+            if output:
+                output_preview = output.strip()
+                if len(output_preview) > 500:
+                    output_preview = output_preview[:497] + "..."
+                lines.append("<details>")
+                lines.append("<summary>📄 Command Output</summary>")
+                lines.append("")
+                lines.append("```")
+                lines.append(output_preview)
+                lines.append("```")
+                lines.append("")
+                lines.append("</details>")
+                lines.append("")
+        else:
+            lines.append("❌ **Command failed**")
+            lines.append("")
+            if error:
+                error_preview = error.strip()
+                if len(error_preview) > 500:
+                    error_preview = error_preview[:497] + "..."
+                lines.append("```")
+                lines.append(error_preview)
+                lines.append("```")
+                lines.append("")
+        
+        # Next steps section (for merge command - pipeline triggering)
+        if success and command == "merge" and version:
+            lines.append("## ⏭️ Next Steps")
+            lines.append("")
+            lines.append("🚀 **Step repository release pipeline will be triggered**")
+            lines.append("")
+            lines.append("| Property | Value |")
+            lines.append("|----------|-------|")
+            lines.append(f"| **Target Repository** | [sequentech/step]({server_url}/sequentech/step) |")
+            lines.append("| **Workflow** | Auto Publish Release |")
+            lines.append(f"| **Version** | `v{version}` |")
+            lines.append("")
+            lines.append("> See the **trigger-step-release** job for pipeline execution details.")
+            lines.append("")
+        elif success and command not in ["merge"]:
+            lines.append("## ⏭️ Next Steps")
+            lines.append("")
+            lines.append("**Available next actions:**")
+            lines.append(f"- Review the draft release in [Releases]({server_url}/{repo}/releases)")
+            lines.append("- Use `/release-bot merge` to finalize and trigger the release pipeline")
+            lines.append("- Use `/release-bot update` to regenerate release notes")
+            lines.append("")
+        
+        # Write to summary file
+        with open(summary_path, "a") as f:
+            f.write("\n".join(lines))
+        
+        print(f"✅ Job summary written to {summary_path}")
+        
+    except Exception as e:
+        # Don't fail the job if summary writing fails
+        print(f"⚠️ Failed to write job summary: {e}")
+
+
 def main() -> None:
     """
     Main entry point for the release bot.
@@ -1512,6 +1736,18 @@ def main() -> None:
             raise Exception(f"Unknown command: {command}")
             
         print(output)
+        
+        # Write job summary on success
+        write_job_summary(
+            inputs=inputs,
+            command=command,
+            version=version,
+            issue_number=issue_number,
+            event=event,
+            success=True,
+            output=output,
+        )
+        
         if issue_number and inputs.event_name == "issue_comment" and output.strip():
             post_comment(
                 inputs.token,
@@ -1527,6 +1763,18 @@ def main() -> None:
         print(msg)
         print("Full traceback:")
         traceback.print_exc()
+        
+        # Write job summary on failure
+        write_job_summary(
+            inputs=inputs,
+            command=command,
+            version=version,
+            issue_number=issue_number,
+            event=event,
+            success=False,
+            error=error_details,
+        )
+        
         if issue_number and inputs.event_name == "issue_comment":
             post_comment(inputs.token, inputs.repo_name, issue_number, msg)
         sys.exit(1)
